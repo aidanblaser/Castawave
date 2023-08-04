@@ -8,6 +8,10 @@ videos
 plots
 notebooks
 _research
+.github
+.gitignore
+.git
+.gitattributes
 
 ################################################################################
 #                                    Julia                                     #
