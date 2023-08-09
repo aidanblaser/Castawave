@@ -14,7 +14,7 @@ using JLD2
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L=2π)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -25,7 +25,6 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L=2π)
     X - real vector of particle x-positions on the surface
     Y - real vector of particle y-positions on the surface
     ϕ - real vector of scalar velocity potential for particles on the surface
-    L - periodicity of domain in physical space
 
     Output:
     ϕ_x - real vector of U velocity for particles on the surface
@@ -36,7 +35,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L=2π)
 
     R = [X[i] + im * Y[i] for i in 1:N]
 
-    Ω, r, θ = conformalMap(R,L)
+    Ω, r, θ = conformalMap(R)
     
 
     # Ω = smooth(N, Ω1)
@@ -46,14 +45,14 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L=2π)
     # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
     Ω_ξ = DDI1(Ω, N)
     Ω_ξξ = DDI2(Ω, N)
-    R_ξ = (im ./ Ω .*L ./ 2π) .* Ω_ξ
+    R_ξ = (im ./ Ω) .* Ω_ξ
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
     A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N)
     ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ, N)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
-    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y)
+    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
 
     # The quantities for second-order Taylor series timestepping are the material derivatives. Not need for the RK4 scheme.
@@ -62,7 +61,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L=2π)
     return ϕ_x, ϕ_y, ϕ_D, mwl(real.(R_ξ), Y), turningAngle(N, Ω)
 end
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64, L = 2π)
+function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system and timestepping it forward until some final time. The outputs are written into arrays (which can also be exported through JDL2 for larger files).
     
@@ -73,7 +72,7 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
     ϕ  - real vector of initial scalar velocity potential for particles on the surface
     dt - Time step
     tf - Final time of simulation 
-    L  - Length of periodic domain (defaults to 2π) 
+    L  - Periodicity of system in physical length units
 
     Output:
     X_timeseries - real array of x-positions for particles on the surface at each time step
@@ -83,6 +82,12 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
     =#
 
     # Make domain 2π periodic
+    L̃ = L / 2π
+    t̃ = 1/(sqrt(L̃))
+
+    X = X / L̃
+    Y = Y / L̃
+    ϕ = ϕ / (L̃)^2 * t̃
     
 
     t = 0.0 #initial time
@@ -119,5 +124,5 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         i += 1
         t += dt
     end
-    return X_timeseries, Y_timeseries, ϕ_timeseries, wl, ta
+    return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^2 ./ t̃, wl, ta
 end

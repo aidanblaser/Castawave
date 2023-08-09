@@ -7,7 +7,7 @@ using DrWatson
 using Plots
 using LinearAlgebra  #For dot and cross products and matrix equations.
 
-function conformalMap(R::Vector, period=2π)
+function conformalMap(R::Vector)
     #=
     conformalMap is a function that takes complex values R(ξ) and conformally transforms them. It is assumed that ξ is the Lagrangian complex spatial coordinate, where R is the complex surface.
 
@@ -23,7 +23,7 @@ function conformalMap(R::Vector, period=2π)
     θ - the phase angle of Ω
     =#
 
-    Ω = exp.(- im * R .* 2π ./ period);
+    Ω = exp.(- im * R);
 
     r = abs.(Ω)
     θ = angle.(Ω)
@@ -149,7 +149,7 @@ function NormalInversion(ϕ, A, ℵ, N)
     return ϕ_ξ, ϕ_ν
 end
 
-function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y)
+function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     #=
     PhiTimeDer is a function that calculates the Lagrangian and Eulerian time derivative of ϕ from the dynamic Bernoulli condition. 
         
@@ -167,15 +167,15 @@ function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y)
     ϕ_t - Partial Eulerian time derivative of the velocity potential
     =#
 
-    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- 9.81 .* Y
-    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- 9.81 .* Y
+    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY / (L/2π)^(3/2).* Y
+    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY / (L/2π)^(3/2) .* Y
 
     return ϕ_D, ϕ_t
 end
 
 
 
-function RK4i(dt, f::Function, N, X, Y, ϕ, L=2π)
+function RK4i(dt, f::Function, N, X, Y, ϕ, L)
     #=
     RK4 is a function that implements the Runge-Kutta fourth order timestepping scheme for a triple of vectors (X, Y, ϕ)
 
