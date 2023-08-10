@@ -7,7 +7,7 @@ This code base is using the [Julia Language](https://julialang.org/) and the
 [DrWatson package](https://juliadynamics.github.io/DrWatson.jl/stable/) to make this scientific project and its results fast, easy to use, and reproducible.
 
 
-It is authored by Aidan Blaser, Raphael Benamran.
+It is authored by [Aidan Blaser](https://github.com/aidanblaser) & [Raphael Benamran](https://github.com/rbenamran).
 
 To (locally) reproduce this project, do the following:
 
