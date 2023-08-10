@@ -1,5 +1,5 @@
 # Castawave
-![](docs/breakingsteps.png)
+![](breakingstepscropped.png)
 
 This code base is using the [Julia Language](https://julialang.org/) and
 [DrWatson](https://juliadynamics.github.io/DrWatson.jl/stable/)
