@@ -1,25 +1,6 @@
 #= 
-This file defines constants for the program that are .
+This file defines constants for the program that are independent of the input parameters and not to be modified within the program.
 =#
-using JLD2
-using Plots
-
-# df = jldopen("0.01Doldsim.jld2")
-# keys(df)
-
-# X = df["x_o"]
-# Y = df["y_o"]
-# T = df["t"]
-
-# c = union(1, collect(3:22))
-# function fn()
-#     anim = @animate for i in 1:101
-#         scatter([X[1,:]], [Y[1,:]], label = "Timestepped", legend = :topright, framestyle= :box,background_color="black", markerstrokewidth=0,markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.2f s", T[i]))
-#         scatter!([X[i,:]], [Y[i,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0,markersize=1)
-#     end every 1
-#     gif(anim, "doldlinear.gif", fps=4)
-# end
-# fn()
 
 FACTOR1 = [2100 -600 150 -25 2; 
 -70098 52428 -14607 2522 -205;
