@@ -31,7 +31,7 @@ function conformalMap(R::Vector)
 end
 
 #=
-The following functions take the Lagrangian derivative with the condition of the periodicity implemented as an optional parameter. When chosen, the derivative is taken with respect to the X - a offset values, thus taking the periodic difference function's derivative.
+The following DDI1 and DDI2 functions are used for taking the first and second order tangential derivatives with respect to the particle label ξ. They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation. They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.ive.
 =#
 function DDI1(Ω::Vector, N, q=0)
     #=
