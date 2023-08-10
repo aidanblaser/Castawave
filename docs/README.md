@@ -1,10 +1,11 @@
 # Castawave
 ![](breakingstepscropped.png)
 
-This code base is using the [Julia Language](https://julialang.org/) and
-[DrWatson package](https://juliadynamics.github.io/DrWatson.jl/stable/)
-to make a reproducible scientific project named
-> Castawave
+Castawave is a boundary element solver for free surface potential flows, specifically adadpted to handling nonlinear surface waves. The mixed Euler-Lagrangian method used is inspired by [Dold (1992)](https://www.sciencedirect.com/science/article/pii/002199919290327U). 
+
+This code base is using the [Julia Language](https://julialang.org/) and the
+[DrWatson package](https://juliadynamics.github.io/DrWatson.jl/stable/) to make this scientific project and its results fast, easy to use, and reproducible.
+
 
 It is authored by Aidan Blaser, Raphael Benamran.
 
