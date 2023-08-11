@@ -30,6 +30,13 @@ function conformalMap(R::Vector)
     return Ω, r, θ
 end
 
+function conformalDepth(h::Float64)
+    #=
+    conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. It should only be called if the user has indicated the model is of finite depth, to avoid working with infinite values.
+    =#
+
+    H = exp(-2 * h)
+
 #=
 The following DDI1 and DDI2 functions are used for taking the first and second order tangential derivatives with respect to the particle label ξ. They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation. They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.ive.
 =#
