@@ -30,12 +30,18 @@ function conformalMap(R::Vector)
     return Ω, r, θ
 end
 
-function conformalDepth(h::Float64)
+function conformalDepth(h)
     #=
-    conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. It should only be called if the user has indicated the model is of finite depth, to avoid working with infinite values.
+    conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. To avoid working with infinite values, the infinite depth assumption is taken when the user inputs the boolean false as the real h.
     =#
+    if h == false
+        H = 0
+    else
+        H = exp(-2 * h)
+    end
 
-    H = exp(-2 * h)
+    return H 
+end
 
 #=
 The following DDI1 and DDI2 functions are used for taking the first and second order tangential derivatives with respect to the particle label ξ. They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation. They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.ive.
@@ -107,7 +113,7 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
     else
         for ξ_p in 1:N
             for ξ in 1:N
-                C[i,j] = -conj((H * Ω_ξ[ξ] / conj(Ω[ξ_p])) / (Ω[ξ] * (Ω[ξ] - H / conj(Ω[ξ_p]))))
+                C[ξ,ξ_p] = -conj((H * Ω_ξ[ξ] / conj(Ω[ξ_p])) / (Ω[ξ] * (Ω[ξ] - H / conj(Ω[ξ_p]))))
                 if ξ_p == ξ     
                     C[ξ,ξ_p] += Ω_ξξ[ξ] / (2 * Ω_ξ[ξ])
                 else
@@ -355,10 +361,6 @@ function turningAngle(N, Ω)
     end
 
     return maximum(ta)
-end
-
-function rms()
-    1
 end
 
 
