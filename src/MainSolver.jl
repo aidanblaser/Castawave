@@ -19,7 +19,7 @@ using Statistics
 include("Constants.jl")
 include("HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, h=false)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, h=false, smooth=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -107,8 +107,8 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         #     end
         # end
 
-        if mod(i, 10) == 9
-            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, smooth(N, X_timeseries[i,:]), smooth(N, Y_timeseries[i,:]), smooth(N, ϕ_timeseries[i,:], h))
+        if mod(i, 5) == 4
+            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i], X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], h, true)
         else
             ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], h)
         end
@@ -158,8 +158,24 @@ function visualize(interval::Int, fps::Int)
         scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt))
         scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt))
     end every interval
-    gif(anim, "RK4.unstable.3.gif", fps=fps)
+    gif(anim, "RK4sm.unstable.3.gif", fps=fps)
 end
 visualize(1, 12)
 
 # END OF SIMULATION CODE (remaining code are tests or modified methods)
+
+include("HelperFunctions.jl")
+
+scatter([smooth(512, xf[250,:])], [smooth(512, yf[250,:])], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
+
+scatter([xf[250,10:501] .- smooth(492, xf[250,10:501])], [yf[250,10:501] .- smooth(492, yf[250,10:501])], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
+
+
+R = [xf[250,i] + im * yf[250,i] for i in 1:512]
+
+Ω, r, θ = conformalMap(R)
+
+scatter(Ω)
+R2 = smooth(512, Ω, 0)
+scatter(R, legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300)
+scatter(-θ, log.(r), legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300)
