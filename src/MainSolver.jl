@@ -107,7 +107,11 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         #     end
         # end
 
-        ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], h)
+        if mod(i, 10) == 9
+            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, smooth(N, X_timeseries[i,:]), smooth(N, Y_timeseries[i,:]), smooth(N, ϕ_timeseries[i,:], h))
+        else
+            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], h)
+        end
 
         X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt, fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:])
 
@@ -121,14 +125,13 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
     return X_timeseries, Y_timeseries, ϕ_timeseries, wl, ta
 end
 
-
 # START OF ACTUAL SIMULATION CODE: Input values and plotting
 
-n = 128
-A = 0.42
-Δt = 0.001
-tf = 2.0
-h= 0.5
+n = 512
+A = 0.35
+Δt = 0.01
+tf = 6.0
+h = false
 
 X = [(x * 2 * π / n) - A*sin(2*π*x/n) - A^3*sin(2*π*x/n) - A^4 / 3 * sin(4*pi*x/n) for x in 1:n]
 Y = [(cos(2 * π * x / n )) * A + 1/6*A^4*cos(4*pi*x/n) + A^2 / 2 + A^4 / 2 for x in 1:n]
@@ -149,14 +152,14 @@ xf, yf, ϕf, wl, ta = run(n, X, Y, ϕ, Δt, Float64(tf), h)
 
 
 function visualize(interval::Int, fps::Int)
-    anim = @animate for i ∈ 1:2000
+    anim = @animate for i ∈ 210:260
         # scatter([sol[i][:,1]], [sol[i][:,2]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", (i-1)*dt))
 
-        scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt), aspectratio=:equal)
+        scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt))
         scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt))
     end every interval
-    gif(anim, "RK4.deep.gif", fps=fps)
+    gif(anim, "RK4.unstable.3.gif", fps=fps)
 end
-visualize(10, 20)
+visualize(1, 12)
 
 # END OF SIMULATION CODE (remaining code are tests or modified methods)
