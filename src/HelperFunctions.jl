@@ -350,7 +350,7 @@ function smooth(N, Ω, q=1)
         # end
     end
 
-    return Ωsm
+    return Ω_sm
 end
 
 function turningAngle(N, Ω)
