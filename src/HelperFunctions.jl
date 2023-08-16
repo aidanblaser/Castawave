@@ -332,9 +332,9 @@ end
 
 function smooth(N, Ω, q=1)
     if q == 0
-        Ωsm = zeros(Complex, N)
+        Ω_sm = zeros(Complex, N)
     elseif q == 1
-        Ωsm = zeros(N)
+        Ω_sm = zeros(N)
     end
 
     for i in 1:N
