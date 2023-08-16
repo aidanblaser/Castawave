@@ -342,12 +342,12 @@ function smooth(N, Ω, q=1)
 
         δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
 
-        # Ω_sm[i] = Ω[i] - δM
-        if iseven(i)
-            Ω_sm[i] = Ω[i] + δM
-        else
-            Ω_sm[i] = Ω[i] - δM
-        end
+        Ω_sm[i] = Ω[i] - δM
+        # if iseven(i)
+        #     Ω_sm[i] = Ω[i] + δM
+        # else
+        #     Ω_sm[i] = Ω[i] - δM
+        # end
     end
 
     return Ω_sm
