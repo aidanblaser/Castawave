@@ -330,7 +330,7 @@ function mwl(X_ξ, Y)
     return 1 / (2 * pi) * sum(Y .* X_ξ)
 end
 
-function smooth(N, Ω, q=0)
+function smooth(N, Ω, q=1)
     if q == 0
         Ωsm = zeros(Complex, N)
     elseif q == 1
@@ -362,7 +362,6 @@ function turningAngle(N, Ω)
 
     return maximum(ta)
 end
-
 
 #=
 #EXTRA FUNCTIONS FOR NOW
