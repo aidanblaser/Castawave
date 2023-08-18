@@ -168,14 +168,13 @@ include("HelperFunctions.jl")
 
 scatter([smooth(512, xf[250,:])], [smooth(512, yf[250,:])], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
 
-scatter([xf[250,10:501] .- smooth(492, xf[250,10:501])], [yf[250,10:501] .- smooth(492, yf[250,10:501])], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
 
+scatter(xf[250,:], yf[250,:], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
 
 R = [xf[250,i] + im * yf[250,i] for i in 1:512]
 
 Ω, r, θ = conformalMap(R)
+plot(θ, r, proj = :polar, label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
 
-scatter(Ω)
-R2 = smooth(512, Ω, 0)
-scatter(R, legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300)
-scatter(-θ, log.(r), legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300)
+
+scatter([xf[250,10:501] .- smooth(492, xf[250,10:501])], [yf[250,10:501] .- smooth(492, yf[250,10:501])], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)")
