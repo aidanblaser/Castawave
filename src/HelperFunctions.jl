@@ -338,7 +338,12 @@ function smooth(N, Ω, q=1)
     end
 
     for i in 1:N
-        points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
+
+        if i == 4
+            points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)] + 2*π, Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
+        else
+            points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
+        end
 
         δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
 
