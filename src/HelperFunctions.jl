@@ -166,9 +166,8 @@ function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     ϕ_D - Material Lagrangian time derivative of the velocity potential
     ϕ_t - Partial Eulerian time derivative of the velocity potential
     =#
-
-    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY / (L/2π)^(3/2).* Y
-    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY / (L/2π)^(3/2) .* Y
+    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY .* Y
+    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY .* Y
 
     return ϕ_D, ϕ_t
 end
