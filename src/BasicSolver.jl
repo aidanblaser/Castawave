@@ -18,7 +18,7 @@ Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + A^2*k / 2 + A^4*k^3 
 ϕ = [sqrt(GRAVITY/k) * A * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:n]
 
 xf, yf, ϕf,time, wl, ta = run(n, X, Y, ϕ, Δt, Float64(tf),L)
-jldsave("RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
+jldsave(projectdir()*"/data/RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
 
 
 function visualize(interval::Int, fps::Int,time)
@@ -28,7 +28,7 @@ function visualize(interval::Int, fps::Int,time)
         scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.3f s", time[i]))
         scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", time[i]))
     end every interval
-    gif(anim, "RK4.1.gif", fps=fps)
+    gif(anim, projectdir()*"/plots/RK4.1.gif", fps=fps)
 end
 visualize(10, 5,time)
 
