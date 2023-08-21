@@ -87,14 +87,12 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
     XS = X / L̃
     YS = Y / L̃
     ϕS = ϕ / (L̃)^(3/2)
-    tfS = tf / sqrt(L̃)
-    dtS = dt / sqrt(L̃)
 
     
 
     t = 0.0 #initial time
     i = 1   # timeseries index counter.
-    l = ceil(Int, tfS/dtS) + 2   # Number of timesteps
+    l = ceil(Int, tf/dt) + 2   # Number of timesteps
 
     # Create and initialize the timeseries fields. 
     X_timeseries = zeros((l, N))
@@ -109,7 +107,7 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
     ϕ_timeseries[1,:] = ϕS
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
-    while t < tfS
+    while t < tf
         # for j in 1:N
         #     if X_timeseries[i, j] > 2*pi - 0.1
         #         X_timeseries[i, j] -= 2*pi
@@ -118,14 +116,14 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
 
         ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
 
-        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dtS, fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
+        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
 
         # X_timeseries[i+1,:] = TaylorTimestep(dt, X_timeseries[i,:], ϕ_x)
         # Y_timeseries[i+1,:] = TaylorTimestep(dt, Y_timeseries[i,:], ϕ_y)
         # ϕ_timeseries[i+1,:] = TaylorTimestep(dt, ϕ_timeseries[i,:], ϕ_D)
 
         i += 1
-        t += dtS
+        t += dt
     end
     return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^(3/2),time, wl, ta
 end
