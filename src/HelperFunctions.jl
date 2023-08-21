@@ -1,17 +1,17 @@
 #=
-This file contains all the helper functions called by the adapted Dold surface flow solver, including compuatational functions for finding normal and tangential derivatives of ϕ, as well as finding the quantities and associated scheme used for timestepping the system.
+This file contains all the helper functions called by the main functions to run Castawave. This includes functions for mathematical computations, such as the conformal mapping or timestepping scheme, and functions for additional tasks such as output writing and visualization.
 =#
 
 using DrWatson
 @quickactivate "PacketDrift"
 using Plots
-using LinearAlgebra  #For dot and cross products and matrix equations.
+using LinearAlgebra 
 
 function conformalMap(R::Vector)
     #=
     conformalMap is a function that takes complex values R(ξ) and conformally transforms them. It is assumed that ξ is the Lagrangian complex spatial coordinate, where R is the complex surface.
 
-    See section 3 in Longuet-Higgins and Cokelet (1976) for details or Dold 4.6.
+    See section 3 in Longuet-Higgins and Cokelet (1976) or Dold (1992) equation 4.6 for details.
 
     Input:
     R - A complex vector representing the X + iY positions of each particle on the surface 
@@ -32,7 +32,7 @@ function conformalMap(R::Vector)
 end
 
 #=
-The following functions take the Lagrangian derivative with the condition of the periodicity implemented as an optional parameter. When chosen, the derivative is taken with respect to the X - a offset values, thus taking the periodic difference function's derivative.
+The following DDI1 and DDI2 functions are used for taking the first and second order tangential derivatives with respect to the particle label ξ. They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation. They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.ive.
 =#
 function DDI1(Ω::Vector, N, q=0)
     #=
@@ -66,7 +66,6 @@ function DDI2(Ω::Vector, N, q=0)
 
     return Ω_pp
 end
-
 
 function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
     #=

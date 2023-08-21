@@ -1,9 +1,6 @@
 #= 
-This file defines constants for the program .
+This file defines constants for the program that are independent of the input parameters and not to be modified within the program.
 =#
-using JLD2
-using Plots
-
 
 FACTOR1 = [2100 -600 150 -25 2; 
 -70098 52428 -14607 2522 -205;
