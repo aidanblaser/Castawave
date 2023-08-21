@@ -8,19 +8,13 @@ Note that, during initialization, particle labels are taken as the indices of th
 
 using DrWatson
 @quickactivate "PacketDrift"
-using Plots
 using LinearAlgebra 
 using JLD2
-using Test
-using Printf
-using LaTeXStrings
-using Statistics
-using MAT
 
-include("Constants.jl")
-include("initDoldHelpers.jl")
+include(projectdir()*"/src/Constants.jl")
+include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -42,6 +36,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector)
     R = [X[i] + im * Y[i] for i in 1:N]
 
     Ω, r, θ = conformalMap(R)
+    
 
     # Ω = smooth(N, Ω1)
     # ϕ = smooth(N, ϕ1, 1)
@@ -57,7 +52,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector)
     ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ, N)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
-    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y)
+    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
 
     # The quantities for second-order Taylor series timestepping are the material derivatives. Not need for the RK4 scheme.
@@ -66,15 +61,18 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector)
     return ϕ_x, ϕ_y, ϕ_D, mwl(real.(R_ξ), Y), turningAngle(N, Ω)
 end
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64)
+function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system and timestepping it forward until some final time. The outputs are written into arrays (which can also be exported through JDL2 for larger files).
     
     Input:
-    N - number of Lagrangian particles and length of position and velocity vectors
-    X - real vector of initial particle x-positions on the surface
-    Y - real vector of initial particle y-positions on the surface
-    ϕ - real vector of initial scalar velocity potential for particles on the surface
+    N  - number of Lagrangian particles and length of position and velocity vectors
+    X  - real vector of initial particle x-positions on the surface
+    Y  - real vector of initial particle y-positions on the surface
+    ϕ  - real vector of initial scalar velocity potential for particles on the surface
+    dt - Time step
+    tf - Final time of simulation 
+    L  - Periodicity of system in physical length units
 
     Output:
     X_timeseries - real array of x-positions for particles on the surface at each time step
@@ -83,6 +81,14 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64)
     wl - vector of mean water level values at each time step
     =#
 
+    # Make domain 2π periodic
+    L̃ = L / 2π
+
+    XS = X / L̃
+    YS = Y / L̃
+    ϕS = ϕ / (L̃)^(3/2)
+
+    
 
     t = 0.0 #initial time
     i = 1   # timeseries index counter.
@@ -94,10 +100,11 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64)
     ϕ_timeseries = zeros((l, N))
     wl = zeros(l)
     ta = zeros(l)
+    time = collect(0:dt:tf)
 
-    X_timeseries[1,:] = X
-    Y_timeseries[1,:] = Y
-    ϕ_timeseries[1,:] = ϕ
+    X_timeseries[1,:] = XS
+    Y_timeseries[1,:] = YS
+    ϕ_timeseries[1,:] = ϕS
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
     while t < tf
@@ -107,9 +114,9 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64)
         #     end
         # end
 
-        ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:])
+        ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
 
-        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt, fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:])
+        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
 
         # X_timeseries[i+1,:] = TaylorTimestep(dt, X_timeseries[i,:], ϕ_x)
         # Y_timeseries[i+1,:] = TaylorTimestep(dt, Y_timeseries[i,:], ϕ_y)
@@ -118,44 +125,5 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64)
         i += 1
         t += dt
     end
-    return X_timeseries, Y_timeseries, ϕ_timeseries, wl, ta
+    return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^(3/2),time, wl, ta
 end
-
-
-# START OF ACTUAL SIMULATION CODE: Input values and plotting
-
-n = 256
-A = 0.1
-Δt = 0.001
-tf = 3.0
-
-X = [(x * 2 * π / n) - A*sin(2*π*x/n) - A^3*sin(2*π*x/n) - A^4 / 3 * sin(4*pi*x/n) for x in 1:n]
-Y = [(cos(2 * π * x / n )) * A + 1/6*A^4*cos(4*pi*x/n) + A^2 / 2 + A^4 / 2 for x in 1:n]
-ϕ = [sqrt(GRAVITY) * A * exp.(Y[x]) * sin(X[x]) for x in 1:n]
-
-# X = [(x * 2 * π / n) - A*sin(2*π*x/n) for x in 1:n]
-# Y = [(cos(2 * π * x / n )) * A for x in 1:n]
-# ϕ = [sqrt(GRAVITY) * A * exp.(Y[x]) * sin(X[x]) for x in 1:n]
-
-# vars = matread("Data/ClamondSmall.mat")
-# X = vec(vars["X"])
-# Y = vec(vars["Y"])
-# ϕ = vec(vars["F"])
-
-xf, yf, ϕf, wl, ta = run(n, X, Y, ϕ, Δt, Float64(tf))
-jldsave("RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
-
-
-
-function visualize(interval::Int, fps::Int)
-    anim = @animate for i ∈ 1:4000
-        # scatter([sol[i][:,1]], [sol[i][:,2]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", (i-1)*dt))
-
-        scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt))
-        scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", (i-1)*Δt))
-    end every interval
-    gif(anim, "RK4.1.gif", fps=fps)
-end
-visualize(10, 20)
-
-# END OF SIMULATION CODE (remaining code are tests or modified methods)

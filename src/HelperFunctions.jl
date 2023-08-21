@@ -15,6 +15,7 @@ function conformalMap(R::Vector)
 
     Input:
     R - A complex vector representing the X + iY positions of each particle on the surface 
+    period - The periodicity of the wave in physical units
 
     Output:
     Ω - conformally mapped closed contour of the fluid surface
@@ -110,7 +111,7 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
         end
     end
         
-    A = real(C)
+    A = real(C) 
     B = imag(C)
 
     ℵ = π * I - B   # Identity matrix I from LinearAlgebra to subtract B from pi diagonal.
@@ -147,7 +148,7 @@ function NormalInversion(ϕ, A, ℵ, N)
     return ϕ_ξ, ϕ_ν
 end
 
-function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y)
+function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     #=
     PhiTimeDer is a function that calculates the Lagrangian and Eulerian time derivative of ϕ from the dynamic Bernoulli condition. 
         
@@ -164,97 +165,15 @@ function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y)
     ϕ_D - Material Lagrangian time derivative of the velocity potential
     ϕ_t - Partial Eulerian time derivative of the velocity potential
     =#
-
-    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- 9.81 .* Y
-    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- 9.81 .* Y
+    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY .* Y
+    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY .* Y
 
     return ϕ_D, ϕ_t
 end
 
-#=
-function PhiSecondTimeDer(R_ξ, ϕ_x, ϕ_y, ϕ_t, A, ℵ, N, ϕ_ξ, ϕ_ν)
-    X_ξ = real.(R_ξ)
-    Y_ξ = imag.(R_ξ)
-
-    U_ξ = DDI1(ϕ_x, N)
-    V_ξ = DDI1(ϕ_y, N)
-
-    ϕ_tξ, ϕ_tν = NormalInversion(ϕ_t, A, ℵ, N)
-    ∇ϕ_t = (ϕ_tξ .+ im .* ϕ_tν) ./ conj.(R_ξ)
-    # ∇ϕ_t = (ϕ_tξ .+ im .* ϕ_tν) ./ conj.(R_ξ) .- (U_ξ .- im .* V_ξ) .* (ϕ_ξ .+ im .* ϕ_ν) ./ conj.(R_ξ).^2
-    ϕ_xt = real.(∇ϕ_t)
-    ϕ_yt = imag.(∇ϕ_t)
-
-    ux = (U_ξ .* X_ξ .- V_ξ .* Y_ξ) ./ (abs.(R_ξ).^2)
-    vy = -ux
-    vx = (U_ξ .* Y_ξ .+ V_ξ .* X_ξ) ./ (abs.(R_ξ).^2)
-    uy = vx
-
-    U_D = ϕ_xt .+ ϕ_x .* ux .+ ϕ_y .* uy
-    V_D = ϕ_yt .+ ϕ_x .* vx .+ ϕ_y .* vy
-    # DUDT = ϕ_xt .+ (ϕ_x .* ux .+ ϕ_y .* vy) .* ϕ_x
-    # DVDT = ϕ_yt .+ (ϕ_x .* vx .+ ϕ_y .* vy) .* ϕ_y
-    
-    ϕ_DD = -9.81 .* ϕ_y .+ ϕ_x .* U_D .+ ϕ_y .* V_D
-
-    return U_D, V_D, ϕ_DD
-end
-
-function PhiThirdTimeDer(R_ξ, ϕ_x, ϕ_y, ϕ_t, A, ℵ, N, ϕ_ξ, ϕ_ν)
-    X_ξ = real.(R_ξ)
-    Y_ξ = imag.(R_ξ)
-    # U_ξ = DDI1(real.((ϕ_ξ .+ im .* ϕ_ν) ./ conj.(R_ξ)), N)
-    # V_ξ = DDI1(imag.((ϕ_ξ .+ im .* ϕ_ν) ./ conj.(R_ξ)), N)
-    U_ξ = DDI1(ϕ_x, N)
-    V_ξ = DDI1(ϕ_y, N)
-
-    ϕ_tξ, ϕ_tν = NormalInversion(ϕ_t, A, ℵ, N)
-
-    ∇ϕ_t = (ϕ_tξ .+ im .* ϕ_tν) ./ conj.(R_ξ) .- (U_ξ .- im .* V_ξ) .* (ϕ_ξ .+ im .* ϕ_ν) ./ conj.(R_ξ).^2
-    ϕ_xt = real.(∇ϕ_t)
-    ϕ_yt = imag.(∇ϕ_t)
-
-    ux = (U_ξ .* X_ξ .- V_ξ .* Y_ξ) ./ (abs.(R_ξ).^2)
-    vy = -ux
-    vx = (U_ξ .* Y_ξ .+ V_ξ .* X_ξ) ./ (abs.(R_ξ).^2)
-    uy = vx
-
-    U_D = ϕ_xt .+ ϕ_x .* ux .+ ϕ_y .* uy
-    V_D = ϕ_yt .+ ϕ_x .* vx .+ ϕ_y .* vy
-    
-    ϕ_DD = -9.81 .* ϕ_y .+ ϕ_x .* U_D .+ ϕ_y .* V_D
-
-    U_ξt = DDI1(ϕ_xt, N)
-    V_ξt = DDI1(ϕ_yt, N)
-
-    ϕ_tt = - (9.81 .* ϕ_y .+ ϕ_x .* U_D .+ ϕ_y .* V_D .+ ϕ_x .* ϕ_xt .+ ϕ_y .* ϕ_yt)
-    
-    ϕ_ttξ, ϕ_ttν = NormalInversion(ϕ_tt, A, ℵ, N)
-
-    ∇ϕ_tt = (ϕ_ttξ .+ im .* ϕ_ttν) ./ conj.(R_ξ) .- 2 .* (U_ξ .- im .* V_ξ) .* (ϕ_tξ .+ im .* ϕ_tν) ./ conj.(R_ξ).^2 .- (U_ξt .- im .* V_ξt) .* (ϕ_ξ .+ im .* ϕ_ν) ./ conj.(R_ξ).^2 .+ 2 .* ((U_ξ .- im .* V_ξ) .^ 2) .* (ϕ_ξ .+ im .* ϕ_ν) ./ conj.(R_ξ).^3
-
-    ϕ_xtt = real.(∇ϕ_tt)
-    ϕ_ytt = imag.(∇ϕ_tt)
-
-    uxt = 1
-    vyt = 1
-    vxt = 1
-    uyt = 1
-
-    uxx = 1
-    vxx = 1
-
-    U_DD = ϕ_xtt .+ 2 .* (ϕ_x .* uxt .+ ϕ_y .* uyt) .+ (ϕ_xt .* ux .+ ϕ_yt .* vx) .+ ((ux.^2 .+ vx.^2) .* ϕ_x .+ (ϕ_x.^2 - ϕ_y.^2) .* uxx .+ (2 .* ϕ_x .* ϕ_y .* vxx))
-    V_DD = ϕ_ytt .+ 2 .* (ϕ_x .* vxt .+ ϕ_y .* vyt) .+ (ϕ_xt .* vx .- ϕ_yt .* ux) .+ ((ux.^2 .+ vx.^2) .* ϕ_y .+ (ϕ_x.^2 - ϕ_y.^2) .* vxx .- (2 .* ϕ_x .* ϕ_y .* uxx))
 
 
-
-    return U_D, V_D, ϕ_DD
-end
-=#
-
-
-function RK4i(dt, f::Function, N, X, Y, ϕ)
+function RK4i(dt, f::Function, N, X, Y, ϕ, L)
     #=
     RK4 is a function that implements the Runge-Kutta fourth order timestepping scheme for a triple of vectors (X, Y, ϕ)
 
@@ -267,10 +186,10 @@ function RK4i(dt, f::Function, N, X, Y, ϕ)
     ϕ - real vector of scalar velocity potential for particles on the surface
     =#
 
-    k1X, k1Y, k1ϕ = f(N, X, Y, ϕ)
-    k2X, k2Y, k2ϕ = f(N, X .+ dt ./ 2 .* k1X, Y .+ dt ./ 2 .* k1Y, ϕ .+ dt ./ 2 .* k1ϕ)
-    k3X, k3Y, k3ϕ = f(N, X .+ dt ./ 2 .* k2X, Y .+ dt ./ 2 .* k2Y, ϕ .+ dt ./ 2 .* k2ϕ)
-    k4X, k4Y, k4ϕ = f(N, X .+ dt .* k3X, Y .+ dt .* k3Y, ϕ .+ dt .* k3ϕ)
+    k1X, k1Y, k1ϕ = f(N, X, Y, ϕ, L)
+    k2X, k2Y, k2ϕ = f(N, X .+ dt ./ 2 .* k1X, Y .+ dt ./ 2 .* k1Y, ϕ .+ dt ./ 2 .* k1ϕ, L)
+    k3X, k3Y, k3ϕ = f(N, X .+ dt ./ 2 .* k2X, Y .+ dt ./ 2 .* k2Y, ϕ .+ dt ./ 2 .* k2ϕ, L)
+    k4X, k4Y, k4ϕ = f(N, X .+ dt .* k3X, Y .+ dt .* k3Y, ϕ .+ dt .* k3ϕ, L)
     
     Xn = X .+ dt ./ 6 .* (k1X .+ 2 .* k2X .+ 2 .* k3X .+ k4X)     
     Yn = Y .+ dt ./ 6 .* (k1Y .+ 2 .* k2Y .+ 2 .* k3Y .+ k4Y)     
@@ -353,45 +272,3 @@ end
 function rms()
     1
 end
-
-
-#=
-#EXTRA FUNCTIONS FOR NOW
-# Transforming conformal tangential derivatives to real plane, from Dold code.
-function GradientSTransform(u, v, ϕ_u, ϕ_v)
-    ϕ_x = (ϕ_u .* v .- ϕ_v .* u) ./ (ϕ_u .* ϕ_u .+ ϕ_v .* ϕ_v)
-    ϕ_y = (ϕ_v .* v .+ ϕ_u .* u) ./ (ϕ_u .* ϕ_u .+ ϕ_v .* ϕ_v)
-    return ϕ_x, ϕ_y
-end
-
-# For potential future use, implements the cosine transform for Chebyshev spacing
-function ChebyshevMap(n::Int64)
-    l = (n - 1) / 2
-    c = zeros(n)
-    for i in 1:n
-        g = π / 2
-        f = 2 * i + 1
-        h = (n + 1)
-        c[i] = - cos(g * f / h)
-    end
-end
-
-# Simple function that creates the gradient values as a Vector of Tuples of the partial derivatives.
-function GradientST(ϕ_ξ, ϕ_ν, N)
-    ∇ϕ = [(ϕ_ξ[i], ϕ_ν[i]) for i in 1:N]
-    return ∇ϕ
-end
-
-# function Phi2Time(R_ξ, ϕ_x, ϕ_y, ϕ_ξ, ϕ_ν, ϕ_t, A, ℵ, N)
-#     X_ξ = real.(R_ξ)
-#     Y_ξ = imag.(R_ξ)
-#     U_ξ = DDI1(ϕ_x, N)
-#     V_ξ = DDI1(ϕ_y, N)
-
-#     ϕ_tξ, ϕ_tν = NormalInversion(ϕ_t, A, ℵ, N)
-#     ϕ_tt = (ϕ_ξ .* ϕ_tξ .+ ϕ_ν .* ϕ_tν) ./ (abs.(R_ξ).^2) .- (ϕ_ξ .^ 2 .* (X_ξ .* U_ξ .+ Y_ξ .* V_ξ) .+ ϕ_ν .^ 2 .* (X_ξ .* U_ξ .+ Y_ξ .* V_ξ)) ./ (abs.(R_ξ).^4) - 9.81 .* ϕ_y
-    
-#     return ϕ_tt
-# end
-
-=#
