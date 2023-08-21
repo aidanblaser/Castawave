@@ -31,6 +31,19 @@ function conformalMap(R::Vector)
     return Ω, r, θ
 end
 
+function conformalDepth(h)
+    #=
+    conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. To avoid working with infinite values, the infinite depth assumption is taken when the user inputs the boolean false as the real h.
+    =#
+    if h == false
+        H = 0
+    else
+        H = exp(-2 * h)
+    end
+
+    return H 
+end
+
 #=
 The following DDI1 and DDI2 functions are used for taking the first and second order tangential derivatives with respect to the particle label ξ. They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation. They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.ive.
 =#
@@ -101,7 +114,7 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
     else
         for ξ_p in 1:N
             for ξ in 1:N
-                C[i,j] = -conj((H * Ω_ξ[ξ] / conj(Ω[ξ_p])) / (Ω[ξ] * (Ω[ξ] - H / conj(Ω[ξ_p]))))
+                C[ξ,ξ_p] = -conj((H * Ω_ξ[ξ] / conj(Ω[ξ_p])) / (Ω[ξ] * (Ω[ξ] - H / conj(Ω[ξ_p]))))
                 if ξ_p == ξ     
                     C[ξ,ξ_p] += Ω_ξξ[ξ] / (2 * Ω_ξ[ξ])
                 else
@@ -236,27 +249,32 @@ function mwl(X_ξ, Y)
     return 1 / (2 * pi) * sum(Y .* X_ξ)
 end
 
-function smooth(N, Ω, q=0)
+function smooth(N, Ω, q=1)
     if q == 0
-        Ωsm = zeros(Complex, N)
+        Ω_sm = zeros(Complex, N)
     elseif q == 1
-        Ωsm = zeros(N)
+        Ω_sm = zeros(N)
     end
 
     for i in 1:N
-        points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
+
+        if i == 4
+            points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)] + 2*π, Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
+        else
+            points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
+        end
 
         δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
 
         Ω_sm[i] = Ω[i] - δM
         # if iseven(i)
-        #     Ω_sm[i] = Ω[i] - δM
-        # else
         #     Ω_sm[i] = Ω[i] + δM
+        # else
+        #     Ω_sm[i] = Ω[i] - δM
         # end
     end
 
-    return Ωsm
+    return Ω_sm
 end
 
 function turningAngle(N, Ω)
@@ -269,6 +287,8 @@ function turningAngle(N, Ω)
     return maximum(ta)
 end
 
+
 function rms()
     1
 end
+

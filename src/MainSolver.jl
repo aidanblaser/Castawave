@@ -14,7 +14,7 @@ using JLD2
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h=false, smooth=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -38,9 +38,10 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L)
     Ω, r, θ = conformalMap(R)
     
 
+    H = conformalDepth(h)
+
     # Ω = smooth(N, Ω1)
     # ϕ = smooth(N, ϕ1, 1)
-    
 
     # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
     Ω_ξ = DDI1(Ω, N)
@@ -48,7 +49,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L)
     R_ξ = (im ./ Ω) .* Ω_ξ
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
-    A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N)
+    A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H)
     ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ, N)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
@@ -61,7 +62,8 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L)
     return ϕ_x, ϕ_y, ϕ_D, mwl(real.(R_ξ), Y), turningAngle(N, Ω)
 end
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π)
+
+function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π, h=false)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system and timestepping it forward until some final time. The outputs are written into arrays (which can also be exported through JDL2 for larger files).
     
@@ -114,16 +116,17 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         #     end
         # end
 
-        ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
+        if mod(i, 5) == 4
+            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i], X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, h, true)
+        else
+            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, h)
+        end
 
         X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L)
-
-        # X_timeseries[i+1,:] = TaylorTimestep(dt, X_timeseries[i,:], ϕ_x)
-        # Y_timeseries[i+1,:] = TaylorTimestep(dt, Y_timeseries[i,:], ϕ_y)
-        # ϕ_timeseries[i+1,:] = TaylorTimestep(dt, ϕ_timeseries[i,:], ϕ_D)
 
         i += 1
         t += dt
     end
+
     return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^(3/2),time, wl, ta
 end
