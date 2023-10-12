@@ -3,9 +3,11 @@ This file contains all the helper functions called by the main functions to run 
 =#
 
 using DrWatson
-@quickactivate "PacketDrift"
+@quickactivate "Castawave"
 using Plots
 using LinearAlgebra 
+
+include("Constants.jl")
 
 function conformalMap(R::Vector)
     #=
@@ -290,5 +292,13 @@ end
 
 function rms()
     1
+end
+
+function Energy(Ẋ,Ẏ,Y)
+    # Energy calculates the energy of all the particles
+    KE = 1/2*(Ẋ.^2 .+ Ẏ.^2);
+    PE = GRAVITY .* Y;
+
+    return KE, PE 
 end
 

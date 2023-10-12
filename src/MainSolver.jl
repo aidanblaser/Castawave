@@ -7,7 +7,7 @@ Note that, during initialization, particle labels are taken as the indices of th
 =#
 
 using DrWatson
-@quickactivate "PacketDrift"
+@quickactivate "Castawave"
 using LinearAlgebra 
 using JLD2
 
