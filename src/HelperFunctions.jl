@@ -35,9 +35,9 @@ end
 
 function conformalDepth(h)
     #=
-    conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. To avoid working with infinite values, the infinite depth assumption is taken when the user inputs the boolean false as the real h.
+    conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. To avoid working with infinite values, the infinite depth assumption is taken when the user inputs 0 as the real h.
     =#
-    if h == false
+    if h == 0
         H = 0
     else
         H = exp(-2 * h)

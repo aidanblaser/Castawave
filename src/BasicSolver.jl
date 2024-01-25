@@ -24,7 +24,7 @@ Y = vec(vars["Y"]);
 ϕ = vec(vars["F"]);
 
 
-xf, yf, ϕf,time, wl, ta = run(n, X, Y, ϕ, Δt, Float64(tf),L)
+xf, yf, ϕf,time, wl, ta = run(n, X, Y, ϕ, Δt, Float64(tf),L,h=10.)
 jldsave(projectdir()*"/data/RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
 
 
