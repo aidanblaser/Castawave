@@ -14,7 +14,7 @@ using JLD2
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h=0, smooth=false)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Float64, smooth=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -63,7 +63,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h=0, s
 end
 
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π, h=0)
+function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system and timestepping it forward until some final time. The outputs are written into arrays (which can also be exported through JDL2 for larger files).
     
