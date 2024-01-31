@@ -30,7 +30,6 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Flo
     ϕ_x - real vector of U velocity for particles on the surface
     ϕ_y - real vector of V velocity for particles on the surface
     ϕ_D - real vector of the material derivative of ϕ from the dynamic boundary condition
-    - temporary output of mean water level computation from a Lagrangian point of view.
     =#
 
     R = [X[i] + im * Y[i] for i in 1:N]
@@ -40,8 +39,8 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Flo
 
     H = conformalDepth(h)
 
-    # Ω = smooth(N, Ω1)
-    # ϕ = smooth(N, ϕ1, 1)
+    # Ω = smooth(N, Ω)
+    # ϕ = smooth(N, ϕ, 1)
 
     # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
     Ω_ξ = DDI1(Ω, N)
@@ -56,31 +55,36 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Flo
     ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
 
-    # The quantities for second-order Taylor series timestepping are the material derivatives. Not need for the RK4 scheme.
+    # The quantities for second-order Taylor series timestepping are the material derivatives. Not needed for the RK4 scheme.
     # U_D, V_D, ϕ_DD = PhiSecondTimeDer(R_ξ, ϕ_x, ϕ_y, ϕ_t, A, ℵ, N, ϕ_ξ, ϕ_ν)
 
-    return ϕ_x, ϕ_y, ϕ_D, mwl(real.(R_ξ), Y), turningAngle(N, Ω)
+    return ϕ_x, ϕ_y, ϕ_D
 end
 
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0)
+function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smooth = false)
     #=
-    The run function is the master function of the program, taking in the initial conditions for the system and timestepping it forward until some final time. The outputs are written into arrays (which can also be exported through JDL2 for larger files).
+    The run function is the master function of the program, taking in the initial conditions for the system
+    and timestepping it forward until some final time. The outputs are written into arrays
+    (which can also be exported through JDL2 for larger files).
     
     Input:
     N  - number of Lagrangian particles and length of position and velocity vectors
-    X  - real vector of initial particle x-positions on the surface
-    Y  - real vector of initial particle y-positions on the surface
-    ϕ  - real vector of initial scalar velocity potential for particles on the surface
-    dt - Time step
-    tf - Final time of simulation 
-    L  - Periodicity of system in physical length units
+    X  - real vector (length N) of initial particle x-positions on the surface
+    Y  - real vector (length N) of initial particle y-positions on the surface
+    ϕ  - real vector (length N) of initial scalar velocity potential for particles on the surface
+    dt - Time step (scalar, seconds)
+    tf - Final time of simulation (scalar, seconds)
+    L  - Periodicity of system in physical length units (meters)
+    h  - Depth of domain (scalar, meters). Defaults to 0 which means infinite depth.
+    smooth - (true/false) Setting smoothing to true makes all values (X,Y,ϕ) become smoothed
+              at each timestep. The smoothing is a 15 point stencil as defined in Helperfunctions.jl (function name smooth())
 
     Output:
     X_timeseries - real array of x-positions for particles on the surface at each time step
     X_timeseries - real array of y-positions for particles on the surface at each time step
     ϕ_timeseries - real vector of ϕ values for particles on the surface at each time step
-    wl - vector of mean water level values at each time step
+    time         - real array of timesteps from 0 to tf with step size dt
     =#
 
     # Make domain 2π periodic
@@ -102,8 +106,6 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
     X_timeseries = zeros((l, N))
     Y_timeseries = zeros((l, N))
     ϕ_timeseries = zeros((l, N))
-    wl = zeros(l)
-    ta = zeros(l)
     time = collect(0:dt:tf)
 
     X_timeseries[1,:] = XS
@@ -130,5 +132,5 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         t += dt
     end
 
-    return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^(3/2),time, wl, ta
+    return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^(3/2),time
 end
