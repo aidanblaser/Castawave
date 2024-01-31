@@ -6,13 +6,13 @@ using Printf
 
 include(projectdir()*"/src/MainSolver.jl")
 
-n = 256*2
-A = 0.4
+n = 512
+A = 0.5
 Δt = 0.01
 tf = 2.84
 L = 2π;
-k = 1/2;
-h = 0;
+k = 1;
+h = 0;  #infinite depth
 
 X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
 Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + A^2*k / 2 + A^4*k^3 / 2 for α in 1:n]
