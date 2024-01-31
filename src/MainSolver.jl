@@ -63,7 +63,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Flo
 end
 
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0)
+function runsim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system and timestepping it forward until some final time. The outputs are written into arrays (which can also be exported through JDL2 for larger files).
     
