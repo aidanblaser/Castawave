@@ -199,6 +199,8 @@ function RK4i(dt, f::Function, N, X, Y, ϕ, L, H)
     X - real vector of particle x-positions on the surface
     Y - real vector of particle y-positions on the surface
     ϕ - real vector of scalar velocity potential for particles on the surface
+    L - Length of domain (meters )
+    H - Depth of domain (defaults to zero)
     =#
 
     k1X, k1Y, k1ϕ = f(N, X, Y, ϕ, L, H)

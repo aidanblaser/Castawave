@@ -14,7 +14,7 @@ using JLD2
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Float64, smooth=false)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64, smoothing=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -38,9 +38,11 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Flo
     
 
     H = conformalDepth(h)
-
-    # Ω = smooth(N, Ω)
-    # ϕ = smooth(N, ϕ, 1)
+    
+    if smoothing
+        Ω = smooth(N, Ω, 0)
+        ϕ = smooth(N, ϕ, 1)
+    end
 
     # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
     Ω_ξ = DDI1(Ω, N)
@@ -62,7 +64,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L, h::Flo
 end
 
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smooth = false)
+function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smoothing = false)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -121,9 +123,9 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         # end
 
         if mod(i, 5) == 4
-            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs)
+            ϕ_x, ϕ_y, ϕ_D = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,smoothing)
         else
-            ϕ_x, ϕ_y, ϕ_D, wl[i], ta[i] = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs)
+            ϕ_x, ϕ_y, ϕ_D = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,smoothing)
         end
 
         X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs)

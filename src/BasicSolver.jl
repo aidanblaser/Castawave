@@ -7,25 +7,28 @@ using Printf
 include(projectdir()*"/src/MainSolver.jl")
 
 n = 256*2
-A = 0.4
+A = 0.3
 Δt = 0.01
-tf = 2.84
+tf = 4
 L = 2π;
-k = 1/2;
+k = 1;
 h = 0;
+smoothing = true;
 
 X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
 Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + A^2*k / 2 + A^4*k^3 / 2 for α in 1:n]
 ϕ = [sqrt(GRAVITY/k) * A * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:n]
 
-using MAT 
-vars = matread(projectdir()*"/data/ClamondIC.mat")
-X = vec(vars["X"]);
-Y = vec(vars["Y"]);
-ϕ = vec(vars["F"]);
+# Use if you want a generic initial condition
+# 
+# using MAT 
+# vars = matread(projectdir()*"/data/ClamondIC.mat")
+# X = vec(vars["X"]);
+# Y = vec(vars["Y"]);
+# ϕ = vec(vars["F"]);
 
 
-xf, yf, ϕf,time, wl, ta = run(n, X, Y, ϕ, Δt, Float64(tf),L,h)
+xf, yf, ϕf,time = run(n, X, Y, ϕ, Δt, Float64(tf),L,h,smoothing)
 jldsave(projectdir()*"/data/RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
 
 
