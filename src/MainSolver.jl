@@ -122,17 +122,17 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
         #         X_timeseries[i, j] -= 2*pi
         #     end
         # end
-        R = X_timeseries[i,:] .+ im * Y_timeseries[i,:]
+        # R = X_timeseries[i,:] .+ im * Y_timeseries[i,:]
 
-        Ω, r, θ = conformalMap(R)
+        # Ω, r, θ = conformalMap(R)
 
-        if smoothing && mod(i, 5) == 4
-            Ω = smooth(N,Ω,0)
-            ϕ_timeseries[i,:] = smooth(N,ϕ_timeseries[i,:])
-        end
+        # if smoothing && mod(i, 5) == 4
+        #     Ω = smooth(N,Ω,0)
+        #     ϕ_timeseries[i,:] = smooth(N,ϕ_timeseries[i,:])
+        # end
 
-        X_timeseries[i,:] = real.(im.*log.(Ω))
-        Y_timeseries[i,:] = imag.(im.*log.(Ω))
+        # X_timeseries[i,:] = mod2pi.(real.(im.*log.(Ω)))
+        # Y_timeseries[i,:] = imag.(im.*log.(Ω))
 
         X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,false)
 

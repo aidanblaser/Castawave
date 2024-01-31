@@ -82,7 +82,7 @@ function DDI2(Ω::Vector, N, q=0)
     return Ω_pp
 end
 
-function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
+function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0.0)
     #=
     The ABMatrices function sets up the A and B matrices from Dold eq. 4.13, using a necesary conditional double for loop. While it is a computationally expensive function, it is separated from the matrix inversion step because it is only needed once per timestep.
 
@@ -103,7 +103,7 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
     # Does this have to be a double loop because of condition? Access column-first for optimization. The column index j corresponds to ξ prime, the rows to regular ξ.
     # How to optimize the H=0 condition? Has to be in the loops to avoid another long double loop, but need it be checked each time?
 
-    if H == 0
+    if H == 0.0
         for ξ_p in 1:N
             for ξ in 1:N
                 if ξ_p == ξ     
@@ -254,6 +254,7 @@ function mwl(X_ξ, Y)
 end
 
 function smooth(N, Ω, q=1)
+    println("smooth")
     if q == 0
         Ω_sm = zeros(Complex, N)
     elseif q == 1
@@ -272,9 +273,9 @@ function smooth(N, Ω, q=1)
 
         #Ω_sm[i] = Ω[i] - δM
         if iseven(i)
-            Ω_sm[i] = Ω[i] + δM
-        else
             Ω_sm[i] = Ω[i] - δM
+        else
+            Ω_sm[i] = Ω[i] + δM
         end
     end
 
