@@ -188,7 +188,7 @@ end
 
 
 
-function RK4i(dt, f::Function, N, X, Y, ϕ, L, H)
+function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
     #=
     RK4 is a function that implements the Runge-Kutta fourth order timestepping scheme for a triple of vectors (X, Y, ϕ)
 
@@ -203,10 +203,10 @@ function RK4i(dt, f::Function, N, X, Y, ϕ, L, H)
     H - Depth of domain (defaults to zero)
     =#
 
-    k1X, k1Y, k1ϕ = f(N, X, Y, ϕ, L, H)
-    k2X, k2Y, k2ϕ = f(N, X .+ dt ./ 2 .* k1X, Y .+ dt ./ 2 .* k1Y, ϕ .+ dt ./ 2 .* k1ϕ, L, H)
-    k3X, k3Y, k3ϕ = f(N, X .+ dt ./ 2 .* k2X, Y .+ dt ./ 2 .* k2Y, ϕ .+ dt ./ 2 .* k2ϕ, L, H)
-    k4X, k4Y, k4ϕ = f(N, X .+ dt .* k3X, Y .+ dt .* k3Y, ϕ .+ dt .* k3ϕ, L, H)
+    k1X, k1Y, k1ϕ = f(N, X, Y, ϕ, L, H,smoothing)
+    k2X, k2Y, k2ϕ = f(N, X .+ dt ./ 2 .* k1X, Y .+ dt ./ 2 .* k1Y, ϕ .+ dt ./ 2 .* k1ϕ, L, H,smoothing)
+    k3X, k3Y, k3ϕ = f(N, X .+ dt ./ 2 .* k2X, Y .+ dt ./ 2 .* k2Y, ϕ .+ dt ./ 2 .* k2ϕ, L, H,smoothing)
+    k4X, k4Y, k4ϕ = f(N, X .+ dt .* k3X, Y .+ dt .* k3Y, ϕ .+ dt .* k3ϕ, L, H,smoothing)
     
     Xn = X .+ dt ./ 6 .* (k1X .+ 2 .* k2X .+ 2 .* k3X .+ k4X)     
     Yn = Y .+ dt ./ 6 .* (k1Y .+ 2 .* k2Y .+ 2 .* k3Y .+ k4Y)     
@@ -262,7 +262,7 @@ function smooth(N, Ω, q=1)
 
     for i in 1:N
 
-        if i == 4
+        if i == 4 && false
             points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)] + 2*π, Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
         else
             points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
@@ -270,12 +270,12 @@ function smooth(N, Ω, q=1)
 
         δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
 
-        Ω_sm[i] = Ω[i] - δM
-        # if iseven(i)
-        #     Ω_sm[i] = Ω[i] + δM
-        # else
-        #     Ω_sm[i] = Ω[i] - δM
-        # end
+        #Ω_sm[i] = Ω[i] - δM
+        if iseven(i)
+            Ω_sm[i] = Ω[i] + δM
+        else
+            Ω_sm[i] = Ω[i] - δM
+        end
     end
 
     return Ω_sm

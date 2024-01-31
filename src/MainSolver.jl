@@ -32,6 +32,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     ϕ_D - real vector of the material derivative of ϕ from the dynamic boundary condition
     =#
 
+
     R = [X[i] + im * Y[i] for i in 1:N]
 
     Ω, r, θ = conformalMap(R)
@@ -64,7 +65,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
 end
 
 
-function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smoothing = false)
+function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smoothing = false)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -121,14 +122,19 @@ function run(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,
         #         X_timeseries[i, j] -= 2*pi
         #     end
         # end
+        R = X_timeseries[i,:] .+ im * Y_timeseries[i,:]
 
-        if mod(i, 5) == 4
-            ϕ_x, ϕ_y, ϕ_D = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,smoothing)
-        else
-            ϕ_x, ϕ_y, ϕ_D = fixedTimeOperations(N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,smoothing)
+        Ω, r, θ = conformalMap(R)
+
+        if smoothing && mod(i, 5) == 4
+            Ω = smooth(N,Ω,0)
+            ϕ_timeseries[i,:] = smooth(N,ϕ_timeseries[i,:])
         end
 
-        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs)
+        X_timeseries[i,:] = real.(im.*log.(Ω))
+        Y_timeseries[i,:] = imag.(im.*log.(Ω))
+
+        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,false)
 
         i += 1
         t += dt

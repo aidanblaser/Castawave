@@ -7,16 +7,16 @@ using Printf
 include(projectdir()*"/src/MainSolver.jl")
 
 n = 256*2
-A = 0.3
+A = 0.4
 Δt = 0.01
-tf = 4
+tf = 1.6
 L = 2π;
 k = 1;
 h = 0;
-smoothing = true;
+smoothing = false;
 
-X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
-Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + A^2*k / 2 + A^4*k^3 / 2 for α in 1:n]
+X = [(α * L / n) - A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
+Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + 0*A^2*k / 2 + 0*A^4*k^3 / 2 for α in 1:n]
 ϕ = [sqrt(GRAVITY/k) * A * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:n]
 
 # Use if you want a generic initial condition
@@ -28,7 +28,7 @@ Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + A^2*k / 2 + A^4*k^3 
 # ϕ = vec(vars["F"]);
 
 
-xf, yf, ϕf,time = run(n, X, Y, ϕ, Δt, Float64(tf),L,h,smoothing)
+xf, yf, ϕf,time = runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h,smoothing)
 jldsave(projectdir()*"/data/RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
 
 
@@ -39,7 +39,7 @@ function visualize(interval::Int, fps::Int,time)
         scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.3f s", time[i]))
         scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", time[i]))
     end every interval
-    gif(anim, projectdir()*"/plots/RK4.1.gif", fps=fps)
+    gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
 end
 visualize(10, 5,time)
 
