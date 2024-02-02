@@ -6,13 +6,13 @@ using Printf
 
 include(projectdir()*"/src/MainSolver.jl")
 
-n = 128
+n = 64
 A = 0.42
 Δt = 0.01
-tf = 1.4
+tf = 1.9
 L = 2π;
 k = 1;
-h = 1;
+h = 0;
 smoothing = false;
 
 X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
@@ -39,7 +39,7 @@ function visualize(interval::Int, fps::Int,time)
         scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright,
          framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
           dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", time[i]),
-          xlims=(minimum(xf),maximum(xf)),ylims=(minimum(yf),maximum(yf)))
+          xlims=(minimum(xf),maximum(xf)),aspect_ratio=1)
         scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", time[i]))
     end every interval
     gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
