@@ -278,27 +278,3 @@ function smooth(N, Ω, q=1)
 
     return Ω_sm
 end
-
-function turningAngle(N, Ω)
-    ta = zeros(N)
-
-    for i in 1:N
-        ta[i] = abs(angle(Ω[mod1(i+1, N)] - Ω[i]) - angle(Ω[i] - Ω[mod1(i-1, N)]))
-    end
-
-    return maximum(ta)
-end
-
-
-function rms()
-    1
-end
-
-function Energy(Ẋ,Ẏ,Y)
-    # Energy calculates the energy of all the particles
-    KE = 1/2*(Ẋ.^2 .+ Ẏ.^2);
-    PE = GRAVITY .* Y;
-
-    return KE, PE 
-end
-
