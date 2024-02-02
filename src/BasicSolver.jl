@@ -27,8 +27,8 @@ Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + 0*(A^2*k / 2) + 0*A^
 # Y = vec(vars["Y"]);
 # ϕ = vec(vars["F"]);
 
-
 xf, yf, ϕf,time = runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h,smoothing)
+
 jldsave(projectdir()*"/data/RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
 
 
