@@ -82,7 +82,7 @@ function DDI2(Ω::Vector, N, q=0)
     return Ω_pp
 end
 
-function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
+function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0.0)
     #=
     The ABMatrices function sets up the A and B matrices from Dold eq. 4.13, using a necesary conditional double for loop. While it is a computationally expensive function, it is separated from the matrix inversion step because it is only needed once per timestep.
 
@@ -103,7 +103,7 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0)
     # Does this have to be a double loop because of condition? Access column-first for optimization. The column index j corresponds to ξ prime, the rows to regular ξ.
     # How to optimize the H=0 condition? Has to be in the loops to avoid another long double loop, but need it be checked each time?
 
-    if H == 0
+    if H == 0.0
         for ξ_p in 1:N
             for ξ in 1:N
                 if ξ_p == ξ     
@@ -188,7 +188,7 @@ end
 
 
 
-function RK4i(dt, f::Function, N, X, Y, ϕ, L, H)
+function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
     #=
     RK4 is a function that implements the Runge-Kutta fourth order timestepping scheme for a triple of vectors (X, Y, ϕ)
 
@@ -199,12 +199,14 @@ function RK4i(dt, f::Function, N, X, Y, ϕ, L, H)
     X - real vector of particle x-positions on the surface
     Y - real vector of particle y-positions on the surface
     ϕ - real vector of scalar velocity potential for particles on the surface
+    L - Length of domain (meters )
+    H - Depth of domain (defaults to zero)
     =#
 
-    k1X, k1Y, k1ϕ = f(N, X, Y, ϕ, L, H)
-    k2X, k2Y, k2ϕ = f(N, X .+ dt ./ 2 .* k1X, Y .+ dt ./ 2 .* k1Y, ϕ .+ dt ./ 2 .* k1ϕ, L, H)
-    k3X, k3Y, k3ϕ = f(N, X .+ dt ./ 2 .* k2X, Y .+ dt ./ 2 .* k2Y, ϕ .+ dt ./ 2 .* k2ϕ, L, H)
-    k4X, k4Y, k4ϕ = f(N, X .+ dt .* k3X, Y .+ dt .* k3Y, ϕ .+ dt .* k3ϕ, L, H)
+    k1X, k1Y, k1ϕ = f(N, X, Y, ϕ, L, H,smoothing)
+    k2X, k2Y, k2ϕ = f(N, X .+ dt ./ 2 .* k1X, Y .+ dt ./ 2 .* k1Y, ϕ .+ dt ./ 2 .* k1ϕ, L, H,smoothing)
+    k3X, k3Y, k3ϕ = f(N, X .+ dt ./ 2 .* k2X, Y .+ dt ./ 2 .* k2Y, ϕ .+ dt ./ 2 .* k2ϕ, L, H,smoothing)
+    k4X, k4Y, k4ϕ = f(N, X .+ dt .* k3X, Y .+ dt .* k3Y, ϕ .+ dt .* k3ϕ, L, H,smoothing)
     
     Xn = X .+ dt ./ 6 .* (k1X .+ 2 .* k2X .+ 2 .* k3X .+ k4X)     
     Yn = Y .+ dt ./ 6 .* (k1Y .+ 2 .* k2Y .+ 2 .* k3Y .+ k4Y)     
@@ -252,6 +254,7 @@ function mwl(X_ξ, Y)
 end
 
 function smooth(N, Ω, q=1)
+    println("smooth")
     if q == 0
         Ω_sm = zeros(Complex, N)
     elseif q == 1
@@ -260,7 +263,7 @@ function smooth(N, Ω, q=1)
 
     for i in 1:N
 
-        if i == 4
+        if i == 4 && false
             points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)] + 2*π, Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
         else
             points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
@@ -268,13 +271,14 @@ function smooth(N, Ω, q=1)
 
         δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
 
-        Ω_sm[i] = Ω[i] - δM
-        # if iseven(i)
-        #     Ω_sm[i] = Ω[i] + δM
-        # else
-        #     Ω_sm[i] = Ω[i] - δM
-        # end
+        #Ω_sm[i] = Ω[i] - δM
+        if iseven(i)
+            Ω_sm[i] = Ω[i] - δM
+        else
+            Ω_sm[i] = Ω[i] + δM
+        end
     end
 
     return Ω_sm
 end
+
