@@ -7,9 +7,9 @@ using Printf
 include(projectdir()*"/src/MainSolver.jl")
 
 n = 64
-A = 0.42
+A = 0.55
 Δt = 0.01
-tf = 1.9
+tf = 1
 L = 2π;
 k = 1;
 h = 0;
@@ -27,23 +27,23 @@ Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) + 0*(A^2*k / 2) + 0*A^
 # Y = vec(vars["Y"]);
 # ϕ = vec(vars["F"]);
 
-xf, yf, ϕf,time = runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h,smoothing)
-
-jldsave(projectdir()*"/data/RK4.1.jld2"; x=xf, y=yf, ϕ=ϕf, N=n, A=A, dt=Δt, tf=tf)
+sol= runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h)
 
 
-function visualize(interval::Int, fps::Int,time)
-    anim = @animate for i ∈ 1:length(time)
-        # scatter([sol[i][:,1]], [sol[i][:,2]], label = "Timestepped", legend = :bottomright, framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", (i-1)*dt))
 
-        scatter([xf[i,:]], [yf[i,:]], label = "Timestepped", legend = :bottomright,
+# END OF SIMULATION CODE (remaining code are tests or modified methods)
+
+function visualize(interval::Int, fps::Int)
+    anim = @animate for t = 0:Δt:tf
+        xvals = sol(t)[1:n]
+        yvals = sol(t)[n+1:2*n]
+        ϕvals = sol(t)[2*n+1:3*n]
+
+        scatter([xvals],[yvals], label = "Timestepped", legend = :bottomright,
          framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
-          dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", time[i]),
-          xlims=(minimum(xf),maximum(xf)),aspect_ratio=1)
-        scatter!([xf[1,:]], [yf[1,:]], label = "Initial position", framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1, dpi = 300, xlabel=L"x \,(m)",ylabel=L"\eta \,(m)", title= @sprintf("Time: %.3f s", time[i]))
+          dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", t),
+          xlims=(0,L),ylims = (-1.9,1.9),aspect_ratio=1)
     end every interval
     gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
 end
-visualize(1, 50,time)
-
-# END OF SIMULATION CODE (remaining code are tests or modified methods)
+visualize(1, 30)
