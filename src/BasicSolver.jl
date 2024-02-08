@@ -100,10 +100,10 @@ function computeEnergy()
         # Other way of getting KE from Balk 
         B_ξ = ẋ.*imag.(R_ξ) .- ẏ.*real.(R_ξ)
         integrand = -1/2 * ϕ .* B_ξ
-        KE = simpsons_rule_periodic(x,ϕ.* ϕ_n/2)
-        #KE = trapz(1:n,integrand)
+        #KE = simpsons_rule_periodic(x,ϕ.* ϕ_n/2)
+        KE = simpsons_rule_periodic(1:n,integrand)
         #println(KE)
-        PE = simpsons_rule_periodic(x,GRAVITY/2 * (y).^2)
+        PE = simpsons_rule_periodic(1:n,GRAVITY/2 * (y).^2 .* real.(R_ξ))
         append!(MWL_check,simpsons_rule_periodic(x,y)/(2π)) # Eulerian MWL
         #append!(MWL_check,sum(y)/n) # Lagrangian MWL
         append!(energy,KE + PE)
