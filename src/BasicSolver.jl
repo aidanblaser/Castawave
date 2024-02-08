@@ -17,7 +17,7 @@ h = 0;
 smoothing = false;
 
 X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
-Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) .+ (A^2*k / 2) .+ A^4*k^3 * 1/2 for α in 1:n]
+Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in 1:n]
 ϕ = [sqrt(GRAVITY/k) * A * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:n]
 # Use if you want a generic initial condition
 # 
@@ -35,7 +35,7 @@ scatter(X,Y)
 
 
 MWL = sum(Y)/n
-MWL = trapz(X,Y)/(2π)
+MWL = simpsons_rule_periodic(X,Y)/(2π)
 sol= runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h)
 
 
@@ -62,10 +62,21 @@ function simpsons_rule_periodic(X, Y)
     h = diff(X)
     sum = 0   
     for i in 1:2:n-3
-        sum += (h[i] / 3) * (Y[i] + 4*Y[i+1] + Y[i+2])
+        h1 = h[i]
+        h2 = h[i+1]
+        hph = h2 + h1
+        hdh = h2/h1
+        hmh = h2*h1
+        sum += (hph/6)*((2 - hdh)*Y[i] + (hph^2/hmh)*Y[i+1] + (2 - 1/hdh)*Y[i+2])
     end
-    #do the last point periodically
-    sum += (h[end] / 3) * (Y[n-1] + 4*Y[n] + Y[1])
+    # handle last point periodically
+    i = n-1
+    h1 = h[i]
+    h2 = h[1]
+    hph = h2 + h1
+    hdh = h2/h1
+    hmh = h2*h1
+    sum += (hph/6)*((2 - hdh)*Y[i] + (hph^2/hmh)*Y[i+1] + (2 - 1/hdh)*Y[1])
     
     return sum
 end

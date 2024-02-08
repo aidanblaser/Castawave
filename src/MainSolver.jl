@@ -143,7 +143,7 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     params = [N,L,h]
 
     prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
-    sol = solve(prob,Vern7(),reltol=1e-4)
+    sol = solve(prob,Vern7(),reltol=1e-6)
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
     # while t < tf
