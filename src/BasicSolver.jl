@@ -22,7 +22,7 @@ Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) .+ (A^2*k / 2).+ A^4*k
 # Use if you want a generic initial condition
 # 
 # using MAT 
-if false
+if true
     vars = matread(projectdir()*"/data/ClamondICn128.mat")
     X = vec(vars["X"]);
     Y = vec(vars["Y"]);
@@ -57,62 +57,8 @@ function visualize(interval::Int, fps::Int)
 end
 visualize(1, 30)
 
-function simpsons_rule_periodic(X, Y)
-    n = length(X)
-    h = diff(X)
-    sum = 0   
-    for i in 1:2:n-3
-        h1 = h[i]
-        h2 = h[i+1]
-        hph = h2 + h1
-        hdh = h2/h1
-        hmh = h2*h1
-        sum += (hph/6)*((2 - hdh)*Y[i] + (hph^2/hmh)*Y[i+1] + (2 - 1/hdh)*Y[i+2])
-    end
-    # handle last point periodically
-    i = n-1
-    h1 = h[i]
-    h2 = h[1]
-    hph = h2 + h1
-    hdh = h2/h1
-    hmh = h2*h1
-    sum += (hph/6)*((2 - hdh)*Y[i] + (hph^2/hmh)*Y[i+1] + (2 - 1/hdh)*Y[1])
-    
-    return sum
-end
-
-
-function computeEnergy()
-    energy = []
-    MWL_check = []
-    for t ∈ 0:Δt:tf
-        x = sol(t)[1:n]
-        y = sol(t)[n+1:2*n]
-        ẋ = sol(t,Val{1})[1:n]
-        ẏ = sol(t,Val{1})[n+1:2*n]
-        ϕ = sol(t)[2*n+1:end]
-        R = x .+ im.*y
-        Ω,r,θ = conformalMap(R)
-        Ω_ξ = DDI1(Ω, n)
-        R_ξ = (im ./ Ω) .* Ω_ξ
-        q = ẋ .+ im.*ẏ
-        ϕ_n = imag.(q .* abs.(R_ξ) ./ R_ξ)
-        # Other way of getting KE from Balk 
-        B_ξ = ẋ.*imag.(R_ξ) .- ẏ.*real.(R_ξ)
-        integrand = -1/2 * ϕ .* B_ξ
-        #KE = simpsons_rule_periodic(x,ϕ.* ϕ_n/2)
-        KE = simpsons_rule_periodic(1:n,integrand)
-        #println(KE)
-        PE = simpsons_rule_periodic(1:n,GRAVITY/2 * (y).^2 .* real.(R_ξ))
-        append!(MWL_check,simpsons_rule_periodic(x,y)/(2π)) # Eulerian MWL
-        #append!(MWL_check,sum(y)/n) # Lagrangian MWL
-        append!(energy,KE + PE)
-    end
-    return energy, MWL_check
-end
 
 energy, MWL_check = computeEnergy()
-meanE = sum(energy/(tf/Δt))
-plot(0:Δt:tf,energy,xlabel=L"t \, (s)",ylabel ="Energy"*L" \quad (J/kg)",legend=false)
+plot(0:Δt:tf,energy .- energy[1],xlabel=L"t \, (s)",ylabel =L"E - E_0 \quad (J/kg)",legend=false,title= L"E_0: \quad "*@sprintf("%.4f ", energy[1])*L"(J/kg)")
 plot(0:Δt:tf,MWL_check,xlabel=L"t \, (s)",ylabel ="MWL"*L" \quad (m)",legend=false)
 savefig(projectdir()*"/plots/Energy")

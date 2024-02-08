@@ -15,7 +15,7 @@ using DifferentialEquations
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64,smoothing=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -143,7 +143,7 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     params = [N,L,h]
 
     prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
-    sol = solve(prob,Vern7(),reltol=1e-6)
+    sol = solve(prob,Vern7(),reltol=1e-8)
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
     # while t < tf
