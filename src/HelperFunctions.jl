@@ -307,7 +307,7 @@ function simpsons_rule_periodic(X, Y)
 end
 
 
-function computeEnergy()
+function computeEnergy(sol,n,Δt,tf)
     energy = []
     MWL_check = []
     for t ∈ 0:Δt:tf
