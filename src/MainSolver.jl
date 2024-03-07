@@ -10,11 +10,12 @@ using DrWatson
 @quickactivate "Castawave"
 using LinearAlgebra 
 using JLD2
+using DifferentialEquations
 
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64, smoothing=false)
+function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64,smoothing=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -64,8 +65,31 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     return ϕ_x, ϕ_y, ϕ_D
 end
 
+function TimeStep(du,u,p,t)
+    #=
+    Timestepping ODE to be used for DifferentialEquations julia package
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smoothing = false)
+    Input:
+    du = (dX,dY,dϕ) - 3N length vector showing the evolution of each point's X,Y, and ϕ values
+    u = (X,Y,ϕ) - 3N length vector showing values of coordinate
+    p = (N, L, h, smoothing) - vector of parameters
+    t = tf - final time to simulate
+    =#
+    
+    N = Int(p[1]) # number of points
+    u1 = u[1:N];
+    u2 = u[N+1:2*N];
+    u3 = u[2*N+1:3*N];
+    L = p[2]
+    h = p[3]
+    diffu1, diffu2, diffu3 = fixedTimeOperations(N,u1,u2,u3,L,h)
+    du[1:N] = diffu1
+    du[N+1:2*N] = diffu2
+    du[2*N+1:3*N] = diffu3
+end
+
+
+function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -115,30 +139,21 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     Y_timeseries[1,:] = YS
     ϕ_timeseries[1,:] = ϕS
 
+    initial = vcat(XS,YS,ϕS)
+    params = [N,L,h]
+
+    prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
+    sol = solve(prob,Vern7(),reltol=1e-8)
+
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
-    while t < tf
-        # for j in 1:N
-        #     if X_timeseries[i, j] > 2*pi - 0.1
-        #         X_timeseries[i, j] -= 2*pi
-        #     end
-        # end
-        # R = X_timeseries[i,:] .+ im * Y_timeseries[i,:]
+    # while t < tf
+    #    prob = ODEProblem(fixedTimeOperations,)
 
-        # Ω, r, θ = conformalMap(R)
+    #     X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,false)
 
-        # if smoothing && mod(i, 5) == 4
-        #     Ω = smooth(N,Ω,0)
-        #     ϕ_timeseries[i,:] = smooth(N,ϕ_timeseries[i,:])
-        # end
+    #     i += 1
+    #     t += dt
+    # end
 
-        # X_timeseries[i,:] = mod2pi.(real.(im.*log.(Ω)))
-        # Y_timeseries[i,:] = imag.(im.*log.(Ω))
-
-        X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,false)
-
-        i += 1
-        t += dt
-    end
-
-    return X_timeseries.* L̃, Y_timeseries .*L̃, ϕ_timeseries .* L̃^(3/2),time
+    return sol
 end
