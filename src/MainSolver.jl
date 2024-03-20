@@ -15,7 +15,7 @@ using DifferentialEquations
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64,smoothing=false)
+function fixedTimeOperations(N::Int, Ω, ϕ, L, h,smoothing=false)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -32,18 +32,13 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     ϕ_y - real vector of V velocity for particles on the surface
     ϕ_D - real vector of the material derivative of ϕ from the dynamic boundary condition
     =#
-
-
-    R = [X[i] + im * Y[i] for i in 1:N]
-
-    Ω, r, θ = conformalMap(R)
     
 
     H = conformalDepth(h)
     
     if Bool(smoothing)
         Ω = smooth(N, Ω, 0)
-        ϕ = smooth(N, ϕ, 1)
+        ϕ = smooth(N, ϕ, 0)
     end
 
     # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
@@ -56,16 +51,19 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ, N)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
-    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
+    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, imag.(im*log.(Ω)), L)
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
+    
+    # Compute derivative
+    Ω_D = -im*Ω.*(ϕ_x .+ im*ϕ_y)
 
     # The quantities for second-order Taylor series timestepping are the material derivatives. Not needed for the RK4 scheme.
     # U_D, V_D, ϕ_DD = PhiSecondTimeDer(R_ξ, ϕ_x, ϕ_y, ϕ_t, A, ℵ, N, ϕ_ξ, ϕ_ν)
 
-    return ϕ_x, ϕ_y, ϕ_D
+    return Ω_D, ϕ_D
 end
 
-function TimeStep(du,u,p,t)
+function TimeStep(du::Vector{ComplexF64},u::Vector{ComplexF64},p,t)
     #=
     Timestepping ODE to be used for DifferentialEquations julia package
 
@@ -79,14 +77,13 @@ function TimeStep(du,u,p,t)
     N = Int(p[1]) # number of points
     u1 = u[1:N];
     u2 = u[N+1:2*N];
-    u3 = u[2*N+1:3*N];
     L = p[2]
     h = p[3]
     smoothing = Bool(p[4])
-    diffu1, diffu2, diffu3 = fixedTimeOperations(N,u1,u2,u3,L,h,smoothing)
+    diffu1, diffu2 = fixedTimeOperations(N,u1,u2,L,h,smoothing)
+    du = zeros(Complex,2*N)
     du[1:N] = diffu1
     du[N+1:2*N] = diffu2
-    du[2*N+1:3*N] = diffu3
 end
 
 
@@ -114,33 +111,16 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     ϕ_timeseries - real vector of ϕ values for particles on the surface at each time step
     time         - real array of timesteps from 0 to tf with step size dt
     =#
-
     # Make domain 2π periodic
     L̃ = L / 2π
     hs = h / L̃
-
 
     XS = X / L̃
     YS = Y / L̃
     ϕS = ϕ / (L̃)^(3/2)
 
-    
 
-    t = 0.0 #initial time
-    i = 1   # timeseries index counter.
-    l = ceil(Int, tf/dt) + 2   # Number of timesteps
-
-    # Create and initialize the timeseries fields. 
-    X_timeseries = zeros((l, N))
-    Y_timeseries = zeros((l, N))
-    ϕ_timeseries = zeros((l, N))
-    time = collect(0:dt:tf)
-
-    X_timeseries[1,:] = XS
-    Y_timeseries[1,:] = YS
-    ϕ_timeseries[1,:] = ϕS
-
-    initial = vcat(XS,YS,ϕS)
+    initial = vcat(exp.(-im*(XS .+ im.* YS)),ϕS)
     params = [N,L,h,smoothing]
 
     prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)

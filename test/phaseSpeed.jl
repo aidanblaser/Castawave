@@ -27,11 +27,11 @@ N = 128;
 smoothed = true
 # Timestep and final time
 Δt = 0.001;
-tf = Float64(10);
+tf = Float64(1);
 alg = ImplicitEulerExtrapolation(min_order=5,autodiff=false)
-alg = AutoVern9(ESDIRK547L2SA2(autodiff=false))
+alg = Vern9()
 
-A = 0.35;
+A = 0.2;
 X = [(α * L / N) .- A*sin(L*α/N) .- A^3*k^2*sin(L*α/N) .- A^4*k^3 / 3 * sin(2*L*α/N) for α in 1:N];
 Y = [(cos(L * α / N )) * A + 1/6*A^4*k^3*cos(L*α/N) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in 1:N];
 ϕ = [sqrt(9.81/k) * A  * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:N];
@@ -39,7 +39,7 @@ Y = [(cos(L * α / N )) * A + 1/6*A^4*k^3*cos(L*α/N) .+ (A^2*k / 2).+ A^4*k^3 *
 
 
 
-vars = matread(projectdir()*"/data/ClamondICSteepestN64.mat")
+vars = matread(projectdir()*"/data/ClamondICSteepest.mat")
 X = vec(vars["X"])
 Y = vec(vars["Y"]);
 ϕ = vec(vars["F"]);
@@ -49,7 +49,7 @@ sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,alg = alg)
 
 # Get X, Y, ϕ values
 
-t = 0:Δt:2
+t = 0:Δt:1
 xvals = zeros(length(t),N);
 yvals = zeros(length(t),N);
 ϕvals = zeros(length(t),N);
@@ -86,9 +86,9 @@ plot!([0,10],[sqrt(9.81)*(1 + 1/2 *(0.3^2) + 1/8 * 0.3^4),sqrt(9.81)*(1 + 1/2 *(
 gr()
 function visualize(interval::Int, fps::Int)
     anim = @animate for i ∈ t
-        xvals = mod.(sol(i)[1:N],2π)
-        yvals = sol(i)[N+1:2*N]
-        ϕvals = sol(i)[2*N+1:3*N]
+        xvals = mod.(real.(sol(i)[1:N]),2π)
+        yvals = imag.(sol(i)[1:N])
+        ϕvals = sol(i)[N+1:2*N]
 
         scatter(xvals,yvals, legend = false,
          framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
