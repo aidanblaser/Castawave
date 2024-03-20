@@ -52,10 +52,9 @@ function fixedTimeOperations(N::Int, Ω, ϕ, L, h,smoothing=false)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
     ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, imag.(im*log.(Ω)), L)
-    ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
     
     # Compute derivative
-    Ω_D = -im*Ω.*(ϕ_x .+ im*ϕ_y)
+    Ω_D = abs.(Ω).^2 ./ conj.(Ω_ξ) .*(ϕ_ξ .+ im*ϕ_ν)
 
     # The quantities for second-order Taylor series timestepping are the material derivatives. Not needed for the RK4 scheme.
     # U_D, V_D, ϕ_DD = PhiSecondTimeDer(R_ξ, ϕ_x, ϕ_y, ϕ_t, A, ℵ, N, ϕ_ξ, ϕ_ν)
@@ -81,13 +80,12 @@ function TimeStep(du::Vector{ComplexF64},u::Vector{ComplexF64},p,t)
     h = p[3]
     smoothing = Bool(p[4])
     diffu1, diffu2 = fixedTimeOperations(N,u1,u2,L,h,smoothing)
-    du = zeros(Complex,2*N)
     du[1:N] = diffu1
     du[N+1:2*N] = diffu2
 end
 
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0,smoothing=false)
+function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,alg = alg)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -118,7 +116,6 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     XS = X / L̃
     YS = Y / L̃
     ϕS = ϕ / (L̃)^(3/2)
-
 
     initial = vcat(exp.(-im*(XS .+ im.* YS)),ϕS)
     params = [N,L,h,smoothing]

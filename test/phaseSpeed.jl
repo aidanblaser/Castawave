@@ -27,7 +27,7 @@ N = 128;
 smoothed = true
 # Timestep and final time
 Δt = 0.001;
-tf = Float64(1);
+tf = Float64(10);
 alg = ImplicitEulerExtrapolation(min_order=5,autodiff=false)
 alg = Vern9()
 
@@ -49,7 +49,7 @@ sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,alg = alg)
 
 # Get X, Y, ϕ values
 
-t = 0:Δt:1
+t = 0:Δt:10
 xvals = zeros(length(t),N);
 yvals = zeros(length(t),N);
 ϕvals = zeros(length(t),N);
