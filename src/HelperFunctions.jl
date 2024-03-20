@@ -37,7 +37,7 @@ function conformalDepth(h)
     #=
     conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. To avoid working with infinite values, the infinite depth assumption is taken when the user inputs 0 as the real h.
     =#
-    if h == 0.0
+    if iszero(h)
         H = 0.0
     else
         H = exp(-2 * h)
@@ -158,7 +158,7 @@ function NormalInversion(ϕ, A, ℵ, N)
     b = (A * ϕ_ξ) .- ϕ_ξξ    
 
     # Ax = b using the efficient \ operator, where x is the vector of tangential derivatives
-    ϕ_ν = ℵ \ b
+    ϕ_ν = factorize(ℵ) \ b
 
     return ϕ_ξ, ϕ_ν
 end
@@ -254,7 +254,6 @@ function mwl(X_ξ, Y)
 end
 
 function smooth(N, Ω, q=1)
-    println("smooth")
     if q == 0
         Ω_sm = zeros(Complex, N)
     elseif q == 1
