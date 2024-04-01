@@ -41,7 +41,7 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
 
     H = conformalDepth(h)
     
-    if smoothing
+    if Bool(smoothing)
         Ω = smooth(N, Ω, 0)
         ϕ = smooth(N, ϕ, 1)
     end
@@ -82,14 +82,15 @@ function TimeStep(du,u,p,t)
     u3 = u[2*N+1:3*N];
     L = p[2]
     h = p[3]
-    diffu1, diffu2, diffu3 = fixedTimeOperations(N,u1,u2,u3,L,h)
+    smoothing = Bool(p[4])
+    diffu1, diffu2, diffu3 = fixedTimeOperations(N,u1,u2,u3,L,h,smoothing)
     du[1:N] = diffu1
     du[N+1:2*N] = diffu2
     du[2*N+1:3*N] = diffu3
 end
 
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0)
+function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,alg = alg)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -140,10 +141,10 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     ϕ_timeseries[1,:] = ϕS
 
     initial = vcat(XS,YS,ϕS)
-    params = [N,L,h]
+    params = [N,L,h,smoothing]
 
     prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
-    sol = solve(prob,Vern7(),reltol=1e-8)
+    sol = solve(prob,alg,reltol=1e-8,abstol=1e-8,dtmin=1e-5)
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
     # while t < tf

@@ -37,7 +37,7 @@ function conformalDepth(h)
     #=
     conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. To avoid working with infinite values, the infinite depth assumption is taken when the user inputs 0 as the real h.
     =#
-    if h == 0.0
+    if iszero(h)
         H = 0.0
     else
         H = exp(-2 * h)
@@ -158,7 +158,7 @@ function NormalInversion(ϕ, A, ℵ, N)
     b = (A * ϕ_ξ) .- ϕ_ξξ    
 
     # Ax = b using the efficient \ operator, where x is the vector of tangential derivatives
-    ϕ_ν = ℵ \ b
+    ϕ_ν = factorize(ℵ) \ b
 
     return ϕ_ξ, ϕ_ν
 end
@@ -254,7 +254,6 @@ function mwl(X_ξ, Y)
 end
 
 function smooth(N, Ω, q=1)
-    println("smooth")
     if q == 0
         Ω_sm = zeros(Complex, N)
     elseif q == 1
@@ -272,13 +271,20 @@ function smooth(N, Ω, q=1)
         δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
 
         #Ω_sm[i] = Ω[i] - δM
+        #if (abs(Ω[i]) < abs(Ω[mod(i,N)+1])  && abs(Ω[i]) < abs(Ω[mod(N-2+i,N)+1]))
         if iseven(i)
             Ω_sm[i] = Ω[i] - δM
         else
-            Ω_sm[i] = Ω[i] + δM
+            Ω_sm[i] = Ω[i] - δM
         end
+
+
     end
 
+    # b, a = butter(4, 3/(N/2))  # 4th order Butterworth filter design
+
+    # # Apply the low-pass filter to the signal
+    # Ω_sm = filtfilt(b, a, Ω)
     return Ω_sm
 end
 
@@ -310,6 +316,7 @@ end
 function computeEnergy(sol,n,Δt,tf)
     energy = []
     MWL_check = []
+    momentum = []
     for t ∈ 0:Δt:tf
         x = sol(t)[1:n]
         y = sol(t)[n+1:2*n]
@@ -329,9 +336,12 @@ function computeEnergy(sol,n,Δt,tf)
         KE = simpsons_rule_periodic(1:n,integrand)
         #println(KE)
         PE = simpsons_rule_periodic(1:n,GRAVITY/2 * (y).^2 .* real.(R_ξ))
+        # momentum
+        p = simpsons_rule_periodic(X,ẋ)
         append!(MWL_check,simpsons_rule_periodic(x,y)/(2π)) # Eulerian MWL
         #append!(MWL_check,sum(y)/n) # Lagrangian MWL
         append!(energy,KE + PE)
+        append!(momentum, p)
     end
-    return energy, MWL_check
+    return energy, MWL_check, momentum
 end
