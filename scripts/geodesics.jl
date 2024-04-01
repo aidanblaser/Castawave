@@ -60,7 +60,7 @@ function timeCurvature(xvals,yvals,t,n)
         Yξt[i,:] = (Yξ[i+1,:].-Yξ[i,:])./(t[i+1]-t[i])
     end
     curvature_time = (Ytt .- 2*(Yξt.*Xt)./Xξ .+ Yξξ.*Xt.^2 ./(Xξ.^2) .+ Yξ.*(2*(Xξt.*Xt)./(Xξ.^2) .+ Xξξ.*Xt.^2 ./(Xξ.^2) .- Xtt./Xξ))./(((Yt .- Yξ.*Xt./Xξ).^2 .+ 1).^(3/2))
-    return curvature_time
+    return curvature_time, Xξ,Yξ,Xt,Yt,Xξt,Yξt,Xtt,Ytt,Xξξ,Yξξ
 end
 
 function Scurvature(xvals,yvals,t,n)
@@ -81,7 +81,7 @@ function Scurvature(xvals,yvals,t,n)
 end
 
 
-time_curvature = timeCurvature(xvals,yvals,0:Δt:tf-offset,n)
+time_curvature,Xξ,Yξ,Xt,Yt,Xξt,Yξt,Xtt,Ytt,Xξξ,Yξξ = timeCurvature(xvals,yvals,0:Δt:tf-offset,n)
 s_curvature = Scurvature(xvals,yvals,0:Δt:tf-offset,n)
 space_curvature = spaceCurvature(xvals,yvals,0:Δt:tf-offset,n)
 
@@ -100,3 +100,39 @@ plot!(xvals[:,120],0:Δt:tf-offset,yvals[:,120],linewidth=5,linecolor=:red,legen
 surf = surface(xvals,repeat(0:Δt:tf-offset,1,n),yvals,surfacecolor = scurv_capped,
 xlabel="x (m)",ylabel="t (s)",zlabel="y (m)",zlims=(-2,2),cbar_title="S Curvature")
 plot!(xvals[:,120],0:Δt:tf-offset,yvals[:,120],linewidth=5,linecolor=:red,legend=false)
+
+
+# Plot values
+plotlyjs()
+time = 0:Δt:tf-offset
+particle = 120
+plot(time,space_curvature[:,particle],legend=:bottomleft, label = "Spatial Curvature",ylims=(-100,100))
+plot!(time, (Xξ[:,particle].*Xtt[:,particle] .+ Yξ[:,particle].*(Ytt[:,particle] .+ 9.81))./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2)/30, label= "Tangential Acceleration")
+#plot!(time,(Yξ[:,particle].*(Ytt[:,particle] .+ 9.81))./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2)/30)
+plot!(time,(Xξ[:,particle].*Xtt[:,particle]./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2)),label = "Horizontal Component of Tangential Acceleration")
+plot!(time,Xtt[:,particle].*10,label="Horizontal Acceleration")
+plot!(time,(Xξ[:,particle].*Xt[:,particle] .+ Yξ[:,particle].*Yt[:,particle]).*10,label="Kappa term")
+
+plot(time,Xtt[:,particle],label="Horizontal Acceleration",legend=:topleft)
+plot!(time, -9.81*Yξ[:,particle].*yvals[:,particle].*25,label="Yξ * Y")
+plot!(time, -9.81*Yξ[:,particle]./Yt[:,particle])
+plot!(time,Xξ[:,particle]*10,label ="Xξ")
+
+plot(time,(Xtt[:,particle].*Yξ[:,particle].- Ytt[:,particle].*Xξ[:,particle].-9.81*Xξ[:,particle])./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2),legend=:topleft,label="pb / J")
+plot!(time,-1.9*9.81*maximum(yvals,dims=2).*Xξ[:,particle]./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2),label="-g Xξ * waveheight / (Xξ^2 + Yξ^2)")
+plot(time,(Xtt[:,particle].*Yξ[:,particle])./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2))
+plot!(time,-1.9*9.81*maximum(yvals,dims=2).*Xξ[:,particle]./ Yξ[:,particle ]./(Xξ[:,particle].^2 .+ Yξ[:,particle].^2))
+plot(time,Yξ[:,particle])
+
+# Normal component of accelerations
+plot(time,(-Xtt[:,particle].*Yξ[:,particle].+ Ytt[:,particle].*Xξ[:,particle])./sqrt.(Xξ[:,particle].^2 .+ Yξ[:,particle].^2),legend=:topleft,label="Normal Acceleration")
+plot!(time, - Xξ[:,particle]./sqrt.(Xξ[:,particle].^2 .+ Yξ[:,particle].^2) ,label="Normal Component of Gravity (g's)")
+
+
+# Tangential component of accelerations
+plot(time, (Xtt[:,particle].*Xξ[:,particle].+ Ytt[:,particle].*Yξ[:,particle])./(sqrt.(Xξ[:,particle].^2 .+ Yξ[:,particle].^2)),legend=:topleft,label="Tangential Acceleration")
+plot!(time, -Yξ[:,particle] ./ sqrt.(Xξ[:,particle].^2 .+ Yξ[:,particle].^2),label="Tangential component of gravity (g's)")
+plot(time,(Xtt[:,particle].*Xξ[:,particle].+ Ytt[:,particle].*Yξ[:,particle] .+9.81* Yξ[:,particle]))
+
+plot(time,Xtt[:,particle],legend=:topleft)
+plot!(time,-9.81*100*maximum(yvals,dims=2).*Xξ[:,particle])

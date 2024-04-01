@@ -3,6 +3,7 @@ authors = ["Aidan Blaser", "Raphael Benamran"]
 
 [deps]
 CubicSplines = "9c784101-8907-5a6d-9be6-98f00873c89b"
+DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 DrWatson = "634d3b9d-ee7a-5ddf-bec9-22491ea816e1"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"

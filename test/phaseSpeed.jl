@@ -31,25 +31,35 @@ tf = Float64(10);
 alg = ImplicitEulerExtrapolation(min_order=5,autodiff=false)
 alg = AutoVern9(ESDIRK547L2SA2(autodiff=false))
 
+
 A = 0.35;
 X = [(α * L / N) .- A*sin(L*α/N) .- A^3*k^2*sin(L*α/N) .- A^4*k^3 / 3 * sin(2*L*α/N) for α in 1:N];
 Y = [(cos(L * α / N )) * A + 1/6*A^4*k^3*cos(L*α/N) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in 1:N];
 ϕ = [sqrt(9.81/k) * A  * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:N];
+Y .-= MWL
 
 
-
-
-vars = matread(projectdir()*"/data/ClamondICSteepestN64.mat")
+using MAT
+vars = matread(projectdir()*"/data/ClamondICSteepestN128.mat")
 X = vec(vars["X"])
 Y = vec(vars["Y"]);
-ϕ = vec(vars["F"]);
+ϕ = vec(vars["F"])*sqrt(9.81);
 
+# Interpolate onto more even grid
+using CubicSplines
+splineY = CubicSpline(X,Y)
+splineϕ = CubicSpline(X,ϕ)
+X = collect(range(minimum(X),stop=maximum(X),length=N))
+Y = splineY[X]
+ϕ = splineϕ[X]
+
+using DSP
 sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,alg = alg)
 
 
 # Get X, Y, ϕ values
 
-t = 0:Δt:2
+t = 0:Δt:3.63
 xvals = zeros(length(t),N);
 yvals = zeros(length(t),N);
 ϕvals = zeros(length(t),N);
@@ -100,9 +110,10 @@ function visualize(interval::Int, fps::Int)
 end
 visualize(20, 30)
 
-energy, MWL_check = computeEnergy(sol,N,Δt,tf)
+energy, MWL_check, momentum = computeEnergy(sol,N,Δt,tf)
 plot(0:Δt:tf,energy .- energy[1],xlabel=L"t \, (s)",ylabel =L"E - E_0 \quad (J/kg)",legend=false,title= L"E_0: \quad "*@sprintf("%.4f ", energy[1])*L"(J/kg)")
 plot(0:Δt:tf,MWL_check,xlabel=L"t \, (s)",ylabel ="MWL"*L" \quad (m)",legend=false)
+plot(0:Δt:tf, momentum)
 
 # Run simulations for range of steepnesses
 for A ∈ Arange
