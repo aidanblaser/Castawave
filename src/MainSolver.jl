@@ -33,23 +33,19 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     ϕ_D - real vector of the material derivative of ϕ from the dynamic boundary condition
     =#
 
-
-    R = [X[i] + im * Y[i] for i in 1:N]
-
-    Ω, r, θ = conformalMap(R)
-    
+    Ω = conformalMap(X .+ im*Y)
+    R_ξ = DDI1(X,N,L,1) .+ im*DDI1(Y,N,0,1)
+    R_ξξ = DDI2(X,N,L,1) .+ im*DDI2(Y,N,0,1)
+    Ω_ξ = -im*R_ξ.*Ω
+    Ω_ξξ = -Ω.*R_ξ.^2 .- im*Ω.*R_ξξ
 
     H = conformalDepth(h)
     
-    if Bool(smoothing)
-        Ω = smooth(N, Ω, 0)
-        ϕ = smooth(N, ϕ, 1)
-    end
 
     # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
-    Ω_ξ = DDI1(Ω, N)
-    Ω_ξξ = DDI2(Ω, N)
-    R_ξ = (im ./ Ω) .* Ω_ξ
+    # Ω_ξ = DDI1(Ω, N)
+    # Ω_ξξ = DDI2(Ω, N)
+    # R_ξ = (im .* Ω_ξ) ./ Ω
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
     A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H)
@@ -90,7 +86,7 @@ function TimeStep(du,u,p,t)
 end
 
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,alg = alg)
+function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,alg = Vern9(),reltol=1e-6)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -143,8 +139,20 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     initial = vcat(XS,YS,ϕS)
     params = [N,L,h,smoothing]
 
+    # Callback
+    function affect!(integrator)
+        N = Int(integrator.p[1])
+        L = integrator.p[2]
+        integrator.u[1:N] = smooth(N,integrator.u[1:N],L,1)
+        integrator.u[N+1:2*N] = smooth(N,integrator.u[N+1:2*N],0,1)
+        integrator.u[2*N+1:3*N] = smooth(N,integrator.u[2*N+1:3*N],0,1)
+    end
+    condition(u,t,integrator) = smoothing
+    cb = DiscreteCallback(condition, affect!)
+
     prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
-    sol = solve(prob,alg,reltol=1e-8,abstol=1e-8,dtmin=1e-5)
+    #sol = solve(prob,alg,reltol=1e-8,abstol=1e-8,dtmin=1e-5,callback=cb)
+    sol = solve(prob,alg,reltol=reltol,dt=dt,dtmin=1e-5,callback=cb)
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
     # while t < tf

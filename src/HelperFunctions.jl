@@ -6,6 +6,7 @@ using DrWatson
 @quickactivate "Castawave"
 using Plots
 using LinearAlgebra 
+using Statistics
 
 include("Constants.jl")
 
@@ -27,10 +28,7 @@ function conformalMap(R::Vector)
 
     Ω = exp.(- im * R);
 
-    r = abs.(Ω)
-    θ = angle.(Ω)
-
-    return Ω, r, θ
+    return Ω
 end
 
 function conformalDepth(h)
@@ -49,7 +47,7 @@ end
 #=
 The following DDI1 and DDI2 functions are used for taking the first and second order tangential derivatives with respect to the particle label ξ. They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation. They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.ive.
 =#
-function DDI1(Ω::Vector, N, q=0)
+function DDI1(Ω::Vector, N, offset,q=0)
     #=
     DDI1 is a function that implements the 11-point Lagrangian polynomial interpolation for the first coefficient from eq... , therefore returning the first order derivative value at the center point.
     =#
@@ -58,16 +56,22 @@ function DDI1(Ω::Vector, N, q=0)
     elseif q == 1
         Ω_p = zeros(N)
     end
-
+    
     for i in 1:N
-        points = [Ω[mod1(i+1, N)] - Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] - Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] - Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] - Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] - Ω[mod1(i-5, N)]]
+        points = [Ω[mod1(i+1, N)]+offset*fld(i,N) - (Ω[mod1(i-1, N)]+offset*fld(i-2,N)), Ω[mod1(i+2, N)]+offset*fld(i+1,N) - (Ω[mod1(i-2, N)]+offset*fld(i-3,N)), Ω[mod1(i+3, N)]+offset*fld(i+2,N) - (Ω[mod1(i-3, N)]+offset*fld(i-4,N)), Ω[mod1(i+4, N)]+offset*fld(i+3,N) - (Ω[mod1(i-4, N)]+offset*fld(i-5,N)), Ω[mod1(i+5, N)]+offset*fld(i+4,N) - (Ω[mod1(i-5, N)]+offset*fld(i-6,N))]
         Ω_p[i] = sum(COEFFICIENTS1 .* points)
+        #Ω_p[i] = Ω[mod1(i+1,N)]
     end
+
+    #trying 4pt stencil 
+    # for i in 1:N
+    #     Ω_p[i] = (8*(Ω[mod1(i+1,N)]+offset*fld(i,N)) - 8*(Ω[mod1(i-1,N)]+offset*fld(i-2,N)) - (Ω[mod1(i+2,N)]+offset*fld(i+1,N)) + (Ω[mod1(i-2,N)]+offset*fld(i-3,N)))/12
+    # end
 
     return Ω_p
 end
 
-function DDI2(Ω::Vector, N, q=0)
+function DDI2(Ω::Vector, N,offset, q=0)
     if q == 0
         Ω_pp = zeros(Complex, N)
     elseif q == 1
@@ -75,9 +79,12 @@ function DDI2(Ω::Vector, N, q=0)
     end
 
     for i in 1:N
-        points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)]]
-        Ω_pp[i] = sum(COEFFICIENTS2 .* points)
+        points = [Ω[i],Ω[mod1(i+1, N)]+offset*fld(i,N) + Ω[mod1(i-1, N)]+offset*fld(i-2,N), Ω[mod1(i+2, N)]+offset*fld(i+1,N) + Ω[mod1(i-2, N)]+offset*fld(i-3,N), Ω[mod1(i+3, N)]+offset*fld(i+2,N) + Ω[mod1(i-3, N)]+offset*fld(i-4,N), Ω[mod1(i+4, N)]+offset*fld(i+3,N) + Ω[mod1(i-4, N)]+offset*fld(i-5,N), Ω[mod1(i+5, N)]+offset*fld(i+4,N) + Ω[mod1(i-5, N)]+offset*fld(i-6,N)]
+        Ω_pp[i] = 2*sum(COEFFICIENTS2 .* points)
     end
+    # for i in 1:N
+    #     Ω_pp[i] = (16*(Ω[mod1(i+1,N)]+offset*fld(i,N)) + 16*(Ω[mod1(i-1,N)]+offset*fld(i-2,N)) - (Ω[mod1(i+2,N)]+offset*fld(i+1,N)) - (Ω[mod1(i-2,N)]+offset*fld(i-3,N)) - 30*Ω[i])/12
+    # end
 
     return Ω_pp
 end
@@ -103,13 +110,13 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0.0)
     # Does this have to be a double loop because of condition? Access column-first for optimization. The column index j corresponds to ξ prime, the rows to regular ξ.
     # How to optimize the H=0 condition? Has to be in the loops to avoid another long double loop, but need it be checked each time?
 
-    if H == 0.0
+    if iszero(H)
         for ξ_p in 1:N
             for ξ in 1:N
                 if ξ_p == ξ     
-                    C[ξ,ξ_p] = Ω_ξξ[ξ] / (2 * Ω_ξ[ξ])
+                    C[ξ,ξ_p] = (Ω_ξξ[ξ]) / (2 * Ω_ξ[ξ])
                 else
-                    C[ξ,ξ_p] = Ω_ξ[ξ] / (Ω[ξ] - Ω[ξ_p])
+                    C[ξ,ξ_p] = (Ω_ξ[ξ]) / (Ω[ξ] - Ω[ξ_p])
                 end
             end
         end
@@ -151,14 +158,14 @@ function NormalInversion(ϕ, A, ℵ, N)
     ϕ_ν - real vector of normal partial derivative scaled by
     =#
 
-    ϕ_ξ = DDI1(ϕ, N, 1)
-    ϕ_ξξ = DDI2(ϕ, N, 1)
+    ϕ_ξ = DDI1(ϕ, N,0,1)
+    ϕ_ξξ = DDI2(ϕ, N,0,1)
 
     # Important: here the * is not element wise to get the sum A*ϕ_ξ for each one-element row entry of the resulting column vector, while the difference is element wise to subtract ϕ_ξξ[i] from each of the summed entries.
     b = (A * ϕ_ξ) .- ϕ_ξξ    
 
     # Ax = b using the efficient \ operator, where x is the vector of tangential derivatives
-    ϕ_ν = factorize(ℵ) \ b
+    ϕ_ν = ℵ \ b
 
     return ϕ_ξ, ϕ_ν
 end
@@ -253,7 +260,7 @@ function mwl(X_ξ, Y)
     return 1 / (2 * pi) * sum(Y .* X_ξ)
 end
 
-function smooth(N, Ω, q=1)
+function smooth(N, Ω, offset,q=1)
     if q == 0
         Ω_sm = zeros(Complex, N)
     elseif q == 1
@@ -262,21 +269,15 @@ function smooth(N, Ω, q=1)
 
     for i in 1:N
 
-        if i == 4 && false
-            points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)] + 2*π, Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
-        else
-            points = [Ω[i], Ω[mod1(i+1, N)] + Ω[mod1(i-1, N)], Ω[mod1(i+2, N)] + Ω[mod1(i-2, N)], Ω[mod1(i+3, N)] + Ω[mod1(i-3, N)], Ω[mod1(i+4, N)] + Ω[mod1(i-4, N)], Ω[mod1(i+5, N)] + Ω[mod1(i-5, N)], Ω[mod1(i+6, N)] + Ω[mod1(i-6, N)], Ω[mod1(i+7, N)] + Ω[mod1(i-7, N)]]
-        end
+        
+        
+        points = [Ω[i],Ω[mod1(i+1, N)]+offset*fld(i,N) + Ω[mod1(i-1, N)]+offset*fld(i-2,N), Ω[mod1(i+2, N)]+offset*fld(i+1,N) + Ω[mod1(i-2, N)]+offset*fld(i-3,N), Ω[mod1(i+3, N)]+offset*fld(i+2,N) + Ω[mod1(i-3, N)]+offset*fld(i-4,N), Ω[mod1(i+4, N)]+offset*fld(i+3,N) + Ω[mod1(i-4, N)]+offset*fld(i-5,N), Ω[mod1(i+5, N)]+offset*fld(i+4,N) + Ω[mod1(i-5, N)]+offset*fld(i-6,N), Ω[mod1(i+6, N)]+offset*fld(i+5,N) + Ω[mod1(i-6, N)]+offset*fld(i-7,N), Ω[mod1(i+7, N)]+offset*fld(i+6,N) + Ω[mod1(i-7, N)]+offset*fld(i-8,N)]
 
-        δM = sum(SMOOTHCOEFFICIENTS .* points) / (2^14)
+        δM = SMOOTHCOEFFICIENTS' * points
 
         #Ω_sm[i] = Ω[i] - δM
         #if (abs(Ω[i]) < abs(Ω[mod(i,N)+1])  && abs(Ω[i]) < abs(Ω[mod(N-2+i,N)+1]))
-        if iseven(i)
-            Ω_sm[i] = Ω[i] - δM
-        else
-            Ω_sm[i] = Ω[i] - δM
-        end
+        Ω_sm[i] = Ω[i] - δM
 
 
     end
@@ -313,35 +314,36 @@ function simpsons_rule_periodic(X, Y)
 end
 
 
-function computeEnergy(sol,n,Δt,tf)
+function computeEnergy(sol,n,Δt,tf,L=2π)
     energy = []
     MWL_check = []
-    momentum = []
+    phasespd = [];
     for t ∈ 0:Δt:tf
         x = sol(t)[1:n]
         y = sol(t)[n+1:2*n]
         ẋ = sol(t,Val{1})[1:n]
         ẏ = sol(t,Val{1})[n+1:2*n]
         ϕ = sol(t)[2*n+1:end]
-        R = x .+ im.*y
-        Ω,r,θ = conformalMap(R)
-        Ω_ξ = DDI1(Ω, n)
-        R_ξ = (im ./ Ω) .* Ω_ξ
-        q = ẋ .+ im.*ẏ
-        ϕ_n = imag.(q .* abs.(R_ξ) ./ R_ξ)
+        xξ = DDI1(x,n,L,1)
+        yξ = DDI1(y,n,0,1)
+        #R = x .+ im.*y
+        #Ω = conformalMap(R)
+        #Ω_ξ = DDI1(Ω, n,0)
+        #R_ξ = (im ./ Ω) .* Ω_ξ
+        #q = ẋ .+ im.*ẏ
+        #ϕ_n = imag.(q .* abs.(R_ξ) ./ R_ξ)
         # Other way of getting KE from Balk 
-        B_ξ = ẋ.*imag.(R_ξ) .- ẏ.*real.(R_ξ)
+        B_ξ = ẋ.*yξ .- ẏ.*xξ
         integrand = -1/2 * ϕ .* B_ξ
         #KE = simpsons_rule_periodic(x,ϕ.* ϕ_n/2)
-        KE = simpsons_rule_periodic(1:n,integrand)
+        KE = sum(integrand)*(2π)/n
         #println(KE)
-        PE = simpsons_rule_periodic(1:n,GRAVITY/2 * (y).^2 .* real.(R_ξ))
-        # momentum
-        p = simpsons_rule_periodic(X,ẋ)
-        append!(MWL_check,simpsons_rule_periodic(x,y)/(2π)) # Eulerian MWL
+        PE = sum(GRAVITY/2 * (y).^2 .* xξ)*2π/n
+        append!(MWL_check,sum(y.*xξ)/n) # Eulerian MWL
         #append!(MWL_check,sum(y)/n) # Lagrangian MWL
         append!(energy,KE + PE)
-        append!(momentum, p)
+        append!(phasespd,median(B_ξ./yξ))
+        #append!(momentum, p)
     end
-    return energy, MWL_check, momentum
+    return energy, MWL_check, phasespd
 end
