@@ -24,12 +24,12 @@ Arange = range(start=0.001,stop=0.42,length=10);
 k = 1;
 L = 2π
 # Number of points
-N = 128;
+N = 300;
 # Set smoothing
 smoothed = true
 # Timestep and final time
-Δt = 0.001;
-tf = Float64(2000);
+Δt = 0.0001;
+tf = Float64(10.0);
 alg = ImplicitEulerExtrapolation(min_order=5,autodiff=false)
 alg = AutoVern9(ESDIRK547L2SA2(autodiff=false))
 alg = AutoVern9(Rodas4P(autodiff=false))
@@ -39,8 +39,20 @@ alg = Kvaerno4(autodiff=false)
 alg = ImplicitEuler(autodiff=false)
 alg = Vern7()
 alg = CVODE_Adams()
+alg = ImplicitMidpoint(autodiff=false)
+alg = SSPRK22()
+alg = SSPRK33()
+alg = SSPRK53()
+alg = ROS3P(autodiff=false)
+alg = TRBDF2(autodiff=false)
+alg = KenCarp5(autodiff=false)
+alg = RadauIIA5(autodiff=false)
+alg = AB4()
 
-A = 0.2;
+A = 0.42;
+include(projectdir()*"/src/ClamondIC.jl")
+X,Y,ϕ,c = getIC(Inf,A,N÷2);
+
 X = [(α * L / N) .- A*sin(L*α/N) .- A^3*k^2*sin(L*α/N) .- A^4*k^3 / 3 * sin(2*L*α/N) for α in 1:N];
 Y = [(cos(L * α / N )) * A + 1/6*A^4*k^3*cos(L*α/N) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in 1:N];
 ϕ = [sqrt(9.81/k) * A  * exp.(k*Y[α]) * sin(k*X[α]) for α in 1:N];
@@ -64,12 +76,12 @@ Y = splineY[X]
 ϕ = splineϕ[X]
 
 using DSP
-sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,alg = alg,relabelling=true)
+sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,alg = alg,reltol=1e-7)
 
 
 # Get X, Y, ϕ values
 
-t = 0:10*Δt:tf
+t = 0:10*Δt:3
 xvals = zeros(length(t),N);
 yvals = zeros(length(t),N);
 ϕvals = zeros(length(t),N);
@@ -79,9 +91,10 @@ for i ∈ 1:length(t)
     ϕvals[i,:] = sol(t[i])[2*N+1:3*N]
 end
 
-scatter(sol(2000)[1:N],sol(2000)[N+1:2*N])
+plotlyjs()
+scatter(sol(10)[1:N],sol(10)[N+1:2*N])
 
-
+@save projectdir()*"/data/steepestSuccess.jld2" sol
 
 
 sol(10)[1:N]
@@ -104,10 +117,10 @@ sqrt(9.81)*(1 + 1/2 *(0.1^2) + 1/8 * (0.1)^4)
 plot(t[1:end-1],cfilt,ylims=(0,5))
 plot!([0,10],[sqrt(9.81)*(1 + 1/2 *(0.3^2) + 1/8 * 0.3^4),sqrt(9.81)*(1 + 1/2 *(0.3^2)+ 1/8 * 0.3^4)])
 
-
+sol.t[1:10:end]
 gr()
 function visualize(interval::Int, fps::Int)
-    anim = @animate for i ∈ t
+    anim = @animate for i ∈ sol.t[1:10:end]
         xvals = mod.(sol(i)[1:N],2π)
         yvals = sol(i)[N+1:2*N]
         ϕvals = sol(i)[2*N+1:3*N]
@@ -120,13 +133,49 @@ function visualize(interval::Int, fps::Int)
     end every interval
     gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
 end
-visualize(20, 30)
+visualize(1, 10)
 
-energy, MWL_check, phasespd = computeEnergy(sol,N,Δt*100,tf)
+energy, MWL_check, phasespd = computeEnergy(sol,N,Δt,tf)
 gr()
-plot(0:Δt*100:tf,energy .- energy[1],xlabel=L"t \, (s)",ylabel =L"E - E_0 \quad (J/kg)",legend=false,title= L"E_0: \quad "*@sprintf("%.4f ", energy[1])*L"(J/kg)")
-plot(0:Δt*100:tf,MWL_check,xlabel=L"t \, (s)",ylabel ="MWL"*L" \quad (m)",legend=false)
-plot(0:Δt:tf, momentum)
+plot(0:Δt:tf,(energy .- energy[1])./(energy[1]).* 100,xlabel=L"t \, (s)",ylabel ="ΔE (%)",legend=false,title= L"E_0: \quad "*@sprintf("%.4f ", energy[1])*L"(J/kg)")
+plot(0:Δt:tf,MWL_check,xlabel=L"t \, (s)",ylabel ="MWL"*L" \quad (m)",legend=false)
+plot(0:Δt:tf, (phasespd .- phasespd[1])./phasespd[1] * 100,
+xlabel = L"t \, (s)",ylabel = "Δc (%)",legend=false)
+
+B_ξ = zeros(length(0:Δt:tf))
+yξ = zeros(length(0:Δt:tf))
+c = zeros(length(0:Δt:tf))
+for t ∈ 0:Δt:tf
+    x = sol(t)[1:n]
+    y = sol(t)[n+1:2*n]
+    ẋ = sol(t,Val{1})[1:n]
+    ẏ = sol(t,Val{1})[n+1:2*n]
+    ϕ = sol(t)[2*n+1:end]
+    xξ = DDI1(x,n,L,1)
+    yξ = DDI1(y,n,0,1)
+    #R = x .+ im.*y
+    #Ω = conformalMap(R)
+    #Ω_ξ = DDI1(Ω, n,0)
+    #R_ξ = (im ./ Ω) .* Ω_ξ
+    #q = ẋ .+ im.*ẏ
+    #ϕ_n = imag.(q .* abs.(R_ξ) ./ R_ξ)
+    # Other way of getting KE from Balk 
+    B_ξ = ẋ.*yξ .- ẏ.*xξ
+    c = ẋ .- ẏ.*xξ./yξ
+end
+plot(B_ξ ./ yξ)
+cest = B_ξ ./ yξ
+plot(c)
+plot!(cest)
+median(c)
+median(cest)
+mean(c)
+median(c)
+plot(yξ)
+plot(B_ξ)
+X,Y,ϕ,cClamond = getIC(Inf,A,N÷2);
+cClamond
+
 
 # Run simulations for range of steepnesses
 for A ∈ Arange
