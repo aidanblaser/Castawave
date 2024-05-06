@@ -86,7 +86,7 @@ function TimeStep(du,u,p,t)
 end
 
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,alg = Vern9(),reltol=1e-6)
+function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,MWL_reset=false,alg = Vern9(),reltol=1e-6)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -121,6 +121,8 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     ϕS = ϕ / (L̃)^(3/2)
 
     
+    #MWL
+    MWL =  sum(DDI1(X,N,L,1).*Y)/L
 
     t = 0.0 #initial time
     i = 1   # timeseries index counter.
@@ -137,9 +139,9 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     ϕ_timeseries[1,:] = ϕS
 
     initial = vcat(XS,YS,ϕS)
-    params = [N,L,h,smoothing]
+    params = [N,L,h,smoothing,MWL]
 
-    # Callback
+    # Callback 1: smoothing 
     function affect!(integrator)
         N = Int(integrator.p[1])
         L = integrator.p[2]
@@ -148,11 +150,25 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
         integrator.u[2*N+1:3*N] = smooth(N,integrator.u[2*N+1:3*N],0,1)
     end
     condition(u,t,integrator) = smoothing
-    cb = DiscreteCallback(condition, affect!)
+    cb1 = DiscreteCallback(condition, affect!)
+    # Callback 2: Resetting MWL 
+    function affectMWL!(integrator)
+        N = Int(integrator.p[1])
+        L = integrator.p[2]
+        MWL = integrator.p[5]
+        Xξ = DDI1(integrator.u[1:N],N,L,1)
+        # Reset MWL 
+        integrator.u[N+1:2*N] .-= (sum(Xξ.*integrator[N+1:2*N])/(L) - MWL)
+    end
+    condition_MWL(u,t,integrator) = MWL_reset
+    cb2 = DiscreteCallback(condition_MWL,affectMWL!)
+
+    # Define array of callbacks
+    cb = CallbackSet(cb1,cb2)
 
     prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
     #sol = solve(prob,alg,reltol=1e-8,abstol=1e-8,dtmin=1e-5,callback=cb)
-    sol = solve(prob,alg,reltol=reltol,dt=dt,dtmin=1e-5,callback=cb)
+    sol = solve(prob,alg,reltol=reltol,abstol=1e-8,dt=dt,callback=cb)
 
     # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
     # while t < tf

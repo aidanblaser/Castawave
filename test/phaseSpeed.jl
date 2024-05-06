@@ -5,6 +5,8 @@ using MAT
 using LaTeXStrings
 using Printf
 using Sundials
+using DiffEqCallbacks
+using Plots
 
 #= Test 1: Does the phase speed match theory?
 
@@ -24,11 +26,13 @@ Arange = range(start=0.001,stop=0.42,length=10);
 k = 1;
 L = 2π
 # Number of points
-N = 300;
+N = 64;
 # Set smoothing
-smoothed = true
+smoothed = false
+# Set MWL Resetting
+MWL_reset = false
 # Timestep and final time
-Δt = 0.0001;
+Δt = 1e-4;
 tf = Float64(10.0);
 alg = ImplicitEulerExtrapolation(min_order=5,autodiff=false)
 alg = AutoVern9(ESDIRK547L2SA2(autodiff=false))
@@ -49,9 +53,12 @@ alg = KenCarp5(autodiff=false)
 alg = RadauIIA5(autodiff=false)
 alg = AB4()
 
-A = 0.42;
+A = 0.3;
 include(projectdir()*"/src/ClamondIC.jl")
 X,Y,ϕ,c = getIC(Inf,A,N÷2);
+Xξ = DDI1(X,N,L,1)
+MWL = sum(Xξ.*Y)/(N)
+Y .-= MWL
 
 X = [(α * L / N) .- A*sin(L*α/N) .- A^3*k^2*sin(L*α/N) .- A^4*k^3 / 3 * sin(2*L*α/N) for α in 1:N];
 Y = [(cos(L * α / N )) * A + 1/6*A^4*k^3*cos(L*α/N) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in 1:N];
@@ -76,7 +83,7 @@ Y = splineY[X]
 ϕ = splineϕ[X]
 
 using DSP
-sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,alg = alg,reltol=1e-7)
+sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,MWL_reset = MWL_reset,alg = alg,reltol=1e-16)
 
 
 # Get X, Y, ϕ values
@@ -128,18 +135,22 @@ function visualize(interval::Int, fps::Int)
         scatter(xvals,yvals, legend = false,
          framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
           dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", i),
-          xlims=(0,L),ylims = (-1.9,1.9),aspect_ratio=1)
+          xlims=(0,L),ylims = (-0.02,0.02))
         #plot!([maxVec[Int(t÷Δt + 1)],maxVec[Int(t÷Δt + 1)]],[-2,2],linewidth=3)
     end every interval
     gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
 end
 visualize(1, 10)
 
-energy, MWL_check, phasespd = computeEnergy(sol,N,Δt,tf)
+KE, PE , MWL_check, phasespd = computeEnergy(sol,N,Δt,tf)
+KE, PE, MWL_check = computeEnergyDold(sol,N)
 gr()
-plot(0:Δt:tf,(energy .- energy[1])./(energy[1]).* 100,xlabel=L"t \, (s)",ylabel ="ΔE (%)",legend=false,title= L"E_0: \quad "*@sprintf("%.4f ", energy[1])*L"(J/kg)")
-plot(0:Δt:tf,MWL_check,xlabel=L"t \, (s)",ylabel ="MWL"*L" \quad (m)",legend=false)
-plot(0:Δt:tf, (phasespd .- phasespd[1])./phasespd[1] * 100,
+energy = KE .+ PE
+plot(sol.t,(energy .- energy[1])./(energy[1]).* 100,xlabel=L"t \, (s)",ylabel ="ΔE (%)",legend=false,title= L"E_0: \quad "*@sprintf("%.4f ", energy[1])*L"(J/kg)")
+plot(sol.t[2:end-1],(KE[2:end-1] .- KE[2])./KE[2] .* 100,xlabel=L"t \, (s)",ylabel = "ΔKE (%)")
+plot(sol.t[2:end-1],(PE[2:end-1] .- PE[2])./PE[2] .* 100,xlabel="t (s)",ylabel="ΔPE (%)")
+plot(sol.t[2:end-1],MWL_check[2:end-1],xlabel=L"t \, (s)",ylabel ="MWL"*L" \quad (m)",legend=false)
+plot(sol.t[2:end-1], (phasespd[2:end-1] .- phasespd[1])./phasespd[1] * 100,
 xlabel = L"t \, (s)",ylabel = "Δc (%)",legend=false)
 
 B_ξ = zeros(length(0:Δt:tf))

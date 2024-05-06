@@ -10,7 +10,7 @@ using Plots
 # i (Fₜ + 1/2 Fₐ) - ϵ(1/8 Fₐₐ + |F|² F) = 0
 
 # First need to discretize our system
-function finite_difference_2nd(n::Int, h::Float64)
+function finite_difference_2nd(n::Int, h::Float64,ϵ)
     main_diag = fill(-2.0, n)
     off_diag = fill(1.0, n-1)
     
@@ -19,10 +19,10 @@ function finite_difference_2nd(n::Int, h::Float64)
     # Adjust the first and last rows for periodic boundary conditions
     matrix[1, end] = 1.0
     matrix[end, 1] = 1.0
-    return h^(-2)*matrix
+    return h^(-2)*matrix * ϵ^2
 end
 
-function finite_difference_1st(n::Int,h::Float64)
+function finite_difference_1st(n::Int,h::Float64,ϵ)
     top_diag = fill(1.0,n-1)
     bot_diag = fill(-1.0,n-1)
 
@@ -30,7 +30,24 @@ function finite_difference_1st(n::Int,h::Float64)
     # periodic BC 
     matrix[1,end] = -1.0
     matrix[end,1] = 1.0
-    return matrix / (2 *h)
+    return matrix / (2 *h) * ϵ
+end
+
+function finite_difference_3rd(n::Int,h::Float64,ϵ)
+    first_top_diag = fill(-1.0,n-1)
+    second_top_diag = fill(1/2,n-2)
+    first_bot_diag = fill(1.0,n-1)
+    second_bot_diag = fill(-1/2,n-2)
+
+    matrix = spdiagm(-1=>first_bot_diag,1=>first_top_diag,-2=>second_bot_diag,2=>second_top_diag)
+    # periodic BC 
+    matrix[1,end] = 1.0
+    matrix[end,1] = -1.0
+    matrix[end-1,1] = 1/2
+    matrix[end,2] = 1/2
+    matrix[1,end-1]= -1/2
+    matrix[2,end] = -1/2
+    return matrix / (h)^3 * ϵ^3
 end
 
 
@@ -39,23 +56,25 @@ function NLSE(dF, F, p,t)
     ϵ = p[1]
     D1 = p[2]
     D2 = p[3]
-    dF .= -im*ϵ*(1/8 * D2 * F .+ abs.(F).^2 .* F) .- 1/2 * D1*F
+    D3 = p[4]
+    #dF .= -im*ϵ*(1/8 * D2 * F .+ abs.(F).^2 .* F) .- 1/2 * D1*F .+ ϵ^2 *(1/8 * D3 * F .- abs.(F).^2 .* D1*F .+ 1/2 * F .* D1 * abs.(F).^2) 
+    dF .= -im*ϵ*(1/8 * D2 * F .+ abs.(F).^2 .* F) .- 1/2 * D1*F .+ ϵ^2 *(1/8 * D3 * F .- 1/2* F.* (conj.(F).*D1*F .- F .* D1*conj.(F)) )
 end
 
 
 # Write ODE problem
-n = 2000
+n = 200
 ϵ = 0.1
-a = range(-1,stop=20,length=n)
-h = a[2]-a[1]
+A = range(-1,stop=20,length=n)
+h = A[2]-A[1]
 tf = 70.0;
 
 # Initial condition
-F_initial = sech.(a.-2).^2 .* exp.(im*a./ϵ)
-plot(a,real.(F_initial))
-plot!(a,imag.(F_initial))
+F_initial = 0.2*sech.((A.-2)).^2 .* exp.(im.* A./ϵ)
+plot(A,real.(F_initial))
+plot!(A,imag.(F_initial))
 
-params = [ϵ, finite_difference_1st(n,h),finite_difference_2nd(n,h)]
+params = (ϵ, finite_difference_1st(n,h,ϵ),finite_difference_2nd(n,h,ϵ),finite_difference_3rd(n,h,ϵ))
 prob = ODEProblem(NLSE,F_initial,tf,params);
 
 sol = solve(prob,Vern7(),reltol=1e-6)
@@ -70,8 +89,8 @@ anim = @animate for i ∈ t
 
     plot(a,abs.(Fvals), legend = false,
         framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
-        dpi = 300, xlabel=L"A \,(m)",ylabel=L"F \,(m)", title= @sprintf("T: %.2f s", i),
-        xlims=(0,20),ylims = (-1.5,1.5))
+        dpi = 300, xlabel=L"a \,(m)",ylabel=L"F \,(m)", title= @sprintf("T: %.2f s", i),
+        xlims=(0,maximum(a)),ylims = (-1.5,1.5))
     plot!(a,real.(Fvals))
     #plot!([maxVec[Int(t÷Δt + 1)],maxVec[Int(t÷Δt + 1)]],[-2,2],linewidth=3)
 end every 1

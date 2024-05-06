@@ -314,11 +314,27 @@ function simpsons_rule_periodic(X, Y)
 end
 
 
-function computeEnergy(sol,n,Δt,tf,L=2π)
-    energy = []
-    MWL_check = []
+function computeEnergy(sol,n,L=2π)
+    #treat initial case differently 
+    # x = sol(0)[1:n]
+    # y = sol(0)[n+1:2*n]
+    # ϕ = sol(0)[2*n+1:end]
+    # xξ = DDI1(x,n,L,1)
+    # yξ = DDI1(y,n,0,1)
+    # du = zeros(length(sol(0)))
+    # TimeStep(du,sol(0),[n,L,0,false],0)
+    # ẋ = du[1:n]
+    # ẏ = du[n+1:2*n]
+    # B_ξ = ẋ.*yξ .- ẏ.*xξ
+    # integrand = -1/2 * ϕ .* B_ξ
+    # energy = [sum(integrand)*(2π)/n + sum(GRAVITY/2 * (y).^2 .* xξ)*2π/n]
+    # MWL_check = [sum(y.*xξ)/L]
+    # phasespd = [median(B_ξ./yξ)];
+    KE = [];
+    PE = [];
+    MWL_check = [];
     phasespd = [];
-    for t ∈ 0:Δt:tf
+    for t ∈ sol.t[1:end]
         x = sol(t)[1:n]
         y = sol(t)[n+1:2*n]
         ẋ = sol(t,Val{1})[1:n]
@@ -332,18 +348,44 @@ function computeEnergy(sol,n,Δt,tf,L=2π)
         #R_ξ = (im ./ Ω) .* Ω_ξ
         #q = ẋ .+ im.*ẏ
         #ϕ_n = imag.(q .* abs.(R_ξ) ./ R_ξ)
-        # Other way of getting KE from Balk 
+        # Other way of getting KE from Balk
+        MWL = sum(y.*xξ)/ n
         B_ξ = ẋ.*yξ .- ẏ.*xξ
         integrand = -1/2 * ϕ .* B_ξ
         #KE = simpsons_rule_periodic(x,ϕ.* ϕ_n/2)
-        KE = sum(integrand)*(2π)/n
+        Kinetic = sum(integrand)*(2π)/n
         #println(KE)
-        PE = sum(GRAVITY/2 * (y).^2 .* xξ)*2π/n
-        append!(MWL_check,sum(y.*xξ)/n) # Eulerian MWL
+        Potential = sum(GRAVITY/2 * (y.-MWL).^2 .* xξ)*2π/n
+        append!(MWL_check,MWL) # Eulerian MWL
         #append!(MWL_check,sum(y)/n) # Lagrangian MWL
-        append!(energy,KE + PE)
+        append!(KE,Kinetic)
+        append!(PE,Potential)
         append!(phasespd,median(B_ξ./yξ))
         #append!(momentum, p)
     end
-    return energy, MWL_check, phasespd
+    return KE, PE , MWL_check, phasespd
+end
+
+function computeEnergyDold(sol,N,L=2π)
+    KE = [];
+    PE = [];
+    MWL_check = [];
+    phasespd = [];
+    for t ∈ sol.t 
+        x = sol(t)[1:N]
+        y = sol(t)[N+1:2*N]
+        ϕ = sol(t)[2*N+1:end]
+        xξ = DDI1(x,N,L,1)
+        yξ = DDI1(y,N,0,1)
+        Ω = conformalMap(x .+ im.*y)
+        u = real(Ω)
+        v = imag(Ω)
+        MWL = sum(xξ.*y)/N
+        Kinetic = sum(0.5*(ϕ.*(v .* xξ .- u .* yξ)))
+        Potential = sum(0.5*GRAVITY.*xξ.*(y.-MWL).^2)
+        append!(KE,Kinetic)
+        append!(PE,Potential)
+        append!(MWL_check,MWL)
+    end
+    return KE, PE, MWL_check
 end
