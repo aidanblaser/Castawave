@@ -241,7 +241,7 @@ savefig(khplot, directory*"khplot.png")
 
 # Look at one solution 
 directory = projectdir()*"/data/sims/Arange_N=128_reltol=1e-8_alg=Rodas4P_nosmooth/"
-description = "N=128"*"_kH2=0.1"*"_alg=Rodas4P"*"_smooth=false"*"_reltol=1.0e-8"
+description = "N=128"*"_kH2=0.02"*"_alg=Rodas4P"*"_smooth=false"*"_reltol=1.0e-8"
 data = jldopen(directory*description*"/data.jld2")
 files = data["data"]
 xD = files["xDold"]
@@ -269,7 +269,7 @@ sol = files["Castawavesol"]
 KE, PE, MWL_check, phasespd = computeEnergy(sol,N,2π)
 energy = KE .+ PE
 
-title = "N=128, reltol=1e-8, kH2 = 0.1"
+title = "N=128, reltol=1e-8, kH2 = 0.02"
 plot(tD,abs.(MWLDold),ylabel="|ΔMWL| (m)",xlabel="t (s)",title=title,
 yscale=:log10,label="Dold")
 plot!(sol.t,abs.(MWL_check),label="Castawave")
@@ -281,9 +281,14 @@ KEDold = sum(integrandD,dims=2).*(2π)./N
 PEDold = sum(GRAVITY/2 .* (yD.^2).* xξD,dims=2).*(2π)./N
 EDold = KEDold .+ PEDold
 
-plot(tD,abs.(EDold.-EDold[1]),title=title,xlabel="t (s)",
-ylabel="|ΔE| (J/kg)",yscale=:log10,label="Dold")
-plot!(sol.t,abs.(energy .- energy[1]),label="Castawave")
+plot(tD,EDold .- EDold[1],title=title,xlabel="t (s)",
+ylabel="ΔE (J/kg)",label="Dold")
+plot!(sol.t,energy .- EDold[1],label="Castawave")
+plot(tD,abs.(EDold.-EDold[1].+1e-16),title=title,xlabel="t (s)",yscale=:log10,
+ylabel="|ΔE| (J/kg)",label="Dold")
+
+plot(sol.t,PE)
+plot(sol.t,KE)
 
 
 

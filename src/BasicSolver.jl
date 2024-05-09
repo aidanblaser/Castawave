@@ -8,8 +8,10 @@ using Plots
 plotlyjs()
 
 include(projectdir()*"/src/MainSolver.jl")
+include(projectdir()*"/src/ClamondIC.jl")
+include(projectdir()*"/src/DoldMono.jl")
 
-n = 128
+N = 128
 A = 0.3
 Δt = 0.001
 tf = 1.895
@@ -41,26 +43,58 @@ scatter(X,Y)
 
 MWL = sum(Y)/n
 MWL = simpsons_rule_periodic(X,Y)/(2π)
-sol= runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h,alg=alg,reltol=1e-8)
 
+N = 128;
+A = 0.40
+X,Y,ϕ,c = getIC(Inf,A,N÷2);
+tf = 5;
+Δt = 1e-3
+L = 2π
+h = 0.0
+tol = 1e-6
 
+ZC = X .+ im.*Y
+Zshift = ZC.* exp.(im*π/2)
+scatter(real(ZC),imag(ZC))
+
+scatter(X,Y)
+
+Xfull, Yfull, ϕfull, t = runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=true)
+t[end]
+plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
+
+sum(Yfull[1,:] .*DDI1(Xfull[1,:],N,2π,1))/N
+sum(Yfull[end,:].*DDI1(Xfull[end,:],N,2π,1))/N
 
 # END OF SIMULATION CODE (remaining code are tests or modified methods)
 gr()
 function visualize(interval::Int, fps::Int)
-    anim = @animate for t = 0:Δt:tf
-        xvals = mod.(sol(t)[1:n] .- π,2π)
-        yvals = sol(t)[n+1:2*n]
-        ϕvals = sol(t)[2*n+1:3*n]
-
-        scatter([xvals],[yvals], label = "Timestepped", legend = :bottomright,
+    anim = @animate for i ∈ enumerate(t)
+        scatter(mod.(Xfull[i[1],:],L),Yfull[i[1],:], legend = false,
          framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
-          dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", t),
+          dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", i[2]),
           xlims=(0,L),ylims = (-1.9,1.9),aspect_ratio=1)
     end every interval
     gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
 end
-visualize(10, 30)
+visualize(10, 10)
+
+xD,yD,ϕD,tD = monoSim(X,Y,ϕ,5)
+tD[end]
+sum(yD[1,:] .*DDI1(xD[1,:],N,2π,1))/N
+sum(yD[end,:].*DDI1(xD[end,:],N,2π,1))/N
+
+gr()
+function visualize(interval::Int, fps::Int)
+    anim = @animate for i ∈ enumerate(tD)
+        scatter(mod.(xD[i[1],:],2π),yD[i[1],:], legend = false,
+         framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
+          dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", i[2]),
+          xlims=(0,L),ylims = (-1.9,1.9),aspect_ratio=1)
+    end every interval
+    gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
+end
+visualize(1, 10)
 
 
 energy, MWL_check = computeEnergy(sol,n,Δt,tf)

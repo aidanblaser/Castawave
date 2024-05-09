@@ -7,6 +7,7 @@ using DrWatson
 using Plots
 using LinearAlgebra 
 using Statistics
+using Polynomials
 
 include("Constants.jl")
 
@@ -193,6 +194,58 @@ function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     return ϕ_D, ϕ_t
 end
 
+function TimeDerivatives(R_ξ, ϕ_x, ϕ_y, A, ℵ, N,Y)
+    #=
+    TimeDerivatives is a function that computes up to the third Lagrangian time derivative
+    of both the positions (x,y) and velocity potential ϕ
+    =#
+
+    # First derivatives of x,y just found from ϕ_x, ϕ_y
+    DϕDt = 0.5 .* (ϕ_x.^2 .+ ϕ_y.^2) .- GRAVITY.*Y
+
+    # First, get Eulerian time derivatives of velocities
+    ϕξt, ϕνt = NormalInversion(-GRAVITY.*Y .- 0.5 .*(ϕ_x.^2 .+ ϕ_y.^2), A, ℵ, N)
+    ut, vt = RealPhi(R_ξ,ϕξt,ϕνt)
+
+    # Next, get gradient of velocity fields
+    xξ = real(R_ξ)
+    yξ = imag(R_ξ)
+    spacing = xξ.^2 .+ yξ.^2
+    uξ = DDI1(ϕ_x,N,0,1)
+    vξ = DDI1(ϕ_y,N,0,1)
+    utξ = DDI1(ut,N,0,1)
+    vtξ = DDI1(vt,N,0,1)
+    ux = (uξ.*xξ .- vξ.*yξ)./spacing
+    vy = -ux
+    vx = (uξ.*yξ .+ vξ.*xξ)./spacing
+    uy = vx
+    utx = (utξ.*xξ .- vtξ.*yξ)./spacing
+    vty = -utx
+    vtx = (utξ.*yξ .+ vtξ.*xξ)./spacing
+    uty = vtx
+    uxξ = DDI1(ux,N,0,1)
+    vxξ = DDI1(vx,N,0,1)
+    uxx = (uxξ.*xξ .- vxξ.*yξ)./spacing
+    vxx = (uxξ.*yξ .+ vxξ.*xξ)./spacing
+    
+
+    # Next, use this to get Lagrangian time derivatives
+    DuDt = ut .+ ϕ_x .* ux .+ ϕ_y .* uy
+    DvDt = vt .+ ϕ_x .* vx .+ ϕ_y .* vy
+    D2ϕDt2 = ϕ_x .* DuDt .+ ϕ_y .* DvDt .- GRAVITY .* ϕ_y
+
+    # Now do third order, need to first get utt Eulerian
+    ϕttξ, ϕttν = NormalInversion(-ϕ_x .* ut .- ϕ_y .* vt,A, ℵ, N)
+    utt,vtt = RealPhi(R_ξ,ϕttξ,ϕttν)
+
+    # Compute third order time derivatives
+    D2uDt2 = utt .+ 2 .*(ϕ_x .* utx .+ ϕ_y.*uty) .+ ut.*ux .+ vt.*vx .+ (ux.^2 .+ vx.^2).*ϕ_x .+ (ϕ_x.^2 .- ϕ_y.^2).* uxx .+ 2 .* ϕ_x .* ϕ_y .* vxx
+    D2vDt2 = vtt .+ 2 .*(ϕ_x .* vtx .+ ϕ_y.*vty) .+ ut.*vx .- vt.*ux .+ (ux.^2 .+ vx.^2).*ϕ_y .+ (ϕ_x.^2 .- ϕ_y.^2).* vxx .- 2 .* ϕ_x .* ϕ_y .* uxx
+    D3ϕDt3 = DuDt.^2 .+ DvDt.^2 .+ ϕ_x .* D2uDt2 .+ ϕ_y .* D2vDt2 .- GRAVITY.*DvDt
+
+    return DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
+end
+
 
 
 function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
@@ -221,6 +274,80 @@ function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
 
     return Xn, Yn, ϕn
 end
+
+function LagrangeInterpolant(ϕ,tReal,l)
+    #=
+    LagrangeInterpolant is a function which, given l previous points in time,
+    forms a Lagrange interpolating polynomial of order l. In practice, this is
+    performed on the third order time derivatives of X,Y,ϕ. This way, we can 
+    use the coefficients to predict up to the (l+3)th order time derivatives
+    using this interpolating polynomial in time. We then output those higher
+    order derivatives to use for Taylor timestepping.
+
+    Inputs:
+    ϕ - a vector of of function values to interpolate 
+    tReal - a vector of times where each function value is taken
+    =#
+    # Shift t-values so that t[end] = 0 (makes derivatives simpler to compute)
+    t = tReal .- tReal[end]
+    # Create empty vector of derivative estimates (up to 5th)
+    dϕ = zeros(5)
+    if l == 0 # i.e. first timestep 
+        nothing # if only one point, can't estimate further
+    end
+
+    if l == 1  #i.e. two point linear fit 
+        p1 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p1,1)(0)
+    end 
+
+    if l == 2  #i.e. three point quadratic fit 
+        p2 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p2,1)(0)
+        dϕ[2] = derivative(p2,2)(0)
+    end
+
+    if l == 3 #i.e. four point cubic fit 
+        p3 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p3,1)(0)
+        dϕ[2] = derivative(p3,2)(0)
+        dϕ[3] = derivative(p3,3)(0)
+    end
+
+    if l == 4 #i.e. five point quartic fit 
+        p4 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p4,1)(0)
+        dϕ[2] = derivative(p4,2)(0)
+        dϕ[3] = derivative(p4,3)(0)
+        dϕ[4] = derivative(p4,4)(0)
+    end
+
+    if l == 5 #i.e. six point quintic fit 
+        p5 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p5,1)(0)
+        dϕ[2] = derivative(p5,2)(0)
+        dϕ[3] = derivative(p5,3)(0)
+        dϕ[4] = derivative(p5,4)(0)
+        dϕ[5] = derivative(p5,5)(0)
+    end
+
+    return dϕ
+end
+
+function LagrangeInterpolation(t,ϕ)
+    n = length(t)
+    Lagrange = [Polynomial(1.0) for i=1:n]
+    for i in 1:n
+        for j in 1:n
+            if i != j
+                Lagrange[i] *= Polynomial([-t[j], 1]) / (t[i] - t[j])
+            end
+        end
+    end
+    return sum(ϕ[i] * Lagrange[i] for i in 1:n)
+end
+
+
 
 function RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
     #=
