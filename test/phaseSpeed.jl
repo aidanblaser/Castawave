@@ -26,7 +26,7 @@ Arange = range(start=0.001,stop=0.42,length=10);
 k = 1;
 L = 2π
 # Number of points
-N = 64;
+N = 128;
 # Set smoothing
 smoothed = false
 # Set MWL Resetting
@@ -53,7 +53,7 @@ alg = KenCarp5(autodiff=false)
 alg = RadauIIA5(autodiff=false)
 alg = AB4()
 
-A = 0.3;
+A = 0.35;
 include(projectdir()*"/src/ClamondIC.jl")
 X,Y,ϕ,c = getIC(Inf,A,N÷2);
 Xξ = DDI1(X,N,L,1)
@@ -83,7 +83,7 @@ Y = splineY[X]
 ϕ = splineϕ[X]
 
 using DSP
-sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,MWL_reset = MWL_reset,alg = alg,reltol=1e-16)
+sol = runSim(N,X,Y,ϕ,Δt,tf,L,smoothing=smoothed,MWL_reset = MWL_reset,alg = alg,reltol=1e-8)
 
 
 # Get X, Y, ϕ values
