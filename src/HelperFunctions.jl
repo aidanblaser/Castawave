@@ -81,7 +81,7 @@ function DDI2(Ω::Vector, N,offset, q=0)
 
     for i in 1:N
         points = [Ω[i],Ω[mod1(i+1, N)]+offset*fld(i,N) + Ω[mod1(i-1, N)]+offset*fld(i-2,N), Ω[mod1(i+2, N)]+offset*fld(i+1,N) + Ω[mod1(i-2, N)]+offset*fld(i-3,N), Ω[mod1(i+3, N)]+offset*fld(i+2,N) + Ω[mod1(i-3, N)]+offset*fld(i-4,N), Ω[mod1(i+4, N)]+offset*fld(i+3,N) + Ω[mod1(i-4, N)]+offset*fld(i-5,N), Ω[mod1(i+5, N)]+offset*fld(i+4,N) + Ω[mod1(i-5, N)]+offset*fld(i-6,N)]
-        Ω_pp[i] = 2*sum(COEFFICIENTS2 .* points)
+        Ω_pp[i] = sum(COEFFICIENTS2 .* points)
     end
     # for i in 1:N
     #     Ω_pp[i] = (16*(Ω[mod1(i+1,N)]+offset*fld(i,N)) + 16*(Ω[mod1(i-1,N)]+offset*fld(i-2,N)) - (Ω[mod1(i+2,N)]+offset*fld(i+1,N)) - (Ω[mod1(i-2,N)]+offset*fld(i-3,N)) - 30*Ω[i])/12
@@ -134,11 +134,43 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0.0)
         end
     end
         
-    A = real(C) 
+    A = real(C)
     B = imag(C)
 
-    ℵ = π * I - B   # Identity matrix I from LinearAlgebra to subtract B from pi diagonal.
+    ℵ = factorize(π*I - B)  # Identity matrix I from LinearAlgebra to subtract B from pi diagonal.
 
+    return A,B,ℵ
+end
+
+function ABDold(Ω,Ω_ξ,Ω_ξξ,N,H=0.0)
+    u = real(Ω)
+    v = imag(Ω)
+    u1 = real(Ω_ξ)
+    v1 = imag(Ω_ξ)
+    s = real(Ω_ξξ)
+    d = imag(Ω_ξξ)
+
+    A = zeros(N,N)
+    B = zeros(N,N)
+
+    for j ∈ 1:N
+        for i ∈ 1:j
+            cr = u[i]-u[j]
+            ci = v[i]-v[j]
+            cs = cr*cr+ci*ci
+            cr = cr/cs
+            ci = ci/cs
+            B[i,j] = v1[i]*cr - u1[i]*ci
+            A[i,j] = u1[i]*cr + v1[i]*ci
+            B[j,i] = u1[j]*ci - v1[j]*cr
+            A[j,i] = -u1[j]*cr - v1[j]*ci
+            cs = u1[j]*u1[j]+v1[j]*v1[j]
+            cs = cs+cs
+            B[j,j] = (d[j]*u1[j]-s[j]*v1[j])/cs
+            A[j,j] = (s[j]*u1[j]+d[j]*v1[j])/cs
+        end
+        ℵ = (π *I - B)
+    end
     return A,B,ℵ
 end
 
@@ -163,7 +195,7 @@ function NormalInversion(ϕ, A, ℵ, N)
     ϕ_ξξ = DDI2(ϕ, N,0,1)
 
     # Important: here the * is not element wise to get the sum A*ϕ_ξ for each one-element row entry of the resulting column vector, while the difference is element wise to subtract ϕ_ξξ[i] from each of the summed entries.
-    b = (A * ϕ_ξ) .- ϕ_ξξ    
+    b = ((A * ϕ_ξ) .- ϕ_ξξ)
 
     # Ax = b using the efficient \ operator, where x is the vector of tangential derivatives
     ϕ_ν = ℵ \ b
@@ -493,26 +525,31 @@ function computeEnergy(sol,n,L=2π)
     return KE, PE , MWL_check, phasespd
 end
 
-function computeEnergyDold(sol,N,L=2π)
+function computeEnergyDold(xvals,yvals,ϕvals,time,N,c,L=2π)
     KE = [];
     PE = [];
     MWL_check = [];
     phasespd = [];
-    for t ∈ sol.t 
-        x = sol(t)[1:N]
-        y = sol(t)[N+1:2*N]
-        ϕ = sol(t)[2*N+1:end]
+    momentum = [];
+    for t ∈ enumerate(time)
+        x = xvals[t[1],:]
+        y = yvals[t[1],:]
+        ϕ = ϕvals[t[1],:]
         xξ = DDI1(x,N,L,1)
         yξ = DDI1(y,N,0,1)
-        Ω = conformalMap(x .+ im.*y)
-        u = real(Ω)
-        v = imag(Ω)
-        MWL = sum(xξ.*y)/N
-        Kinetic = sum(0.5*(ϕ.*(v .* xξ .- u .* yξ)))
-        Potential = sum(0.5*GRAVITY.*xξ.*(y.-MWL).^2)
+        (ẋ, ẏ, _, _, _, _, _, _, _) = fixedTimeOperations(N, x, y, ϕ, L, 0.0)
+        
+        MWL = sum(y.*xξ)/ N
+        B_ξ = ẋ.*yξ .- ẏ.*xξ
+        integrand = -1/2 * ϕ .* B_ξ
+        Kinetic = sum(integrand)*(2π)/N
+        Potential = sum(GRAVITY/2 * (y).^2 .* xξ)*2π/N
+        momIntegral = sum(ẋ.*xξ)/N 
+        append!(MWL_check,MWL)
         append!(KE,Kinetic)
         append!(PE,Potential)
-        append!(MWL_check,MWL)
+        append!(phasespd,median(B_ξ./yξ))
+        append!(momentum,momIntegral)
     end
-    return KE, PE, MWL_check
+    return KE, PE, MWL_check, phasespd, momentum
 end

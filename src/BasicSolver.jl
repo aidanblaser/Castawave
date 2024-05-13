@@ -12,7 +12,7 @@ include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldMono.jl")
 
 N = 128
-A = 0.3
+A = 0.2
 Δt = 0.001
 tf = 1.895
 L = 2π;
@@ -44,14 +44,15 @@ scatter(X,Y)
 MWL = sum(Y)/n
 MWL = simpsons_rule_periodic(X,Y)/(2π)
 
-N = 128;
-A = 0.40
-X,Y,ϕ,c = getIC(Inf,A,N÷2);
-tf = 5;
+N = 256;
+A = 0.1
+X,Y,ϕ,c = getIC(Inf,A,N÷2)
+tf = 10;
 Δt = 1e-3
 L = 2π
 h = 0.0
 tol = 1e-6
+smoothed = false
 
 ZC = X .+ im.*Y
 Zshift = ZC.* exp.(im*π/2)
@@ -59,7 +60,7 @@ scatter(real(ZC),imag(ZC))
 
 scatter(X,Y)
 
-Xfull, Yfull, ϕfull, t = runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=true)
+Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=smoothed)
 t[end]
 plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
 
@@ -79,10 +80,51 @@ function visualize(interval::Int, fps::Int)
 end
 visualize(10, 10)
 
-xD,yD,ϕD,tD = monoSim(X,Y,ϕ,5)
+KE,PE,MWL,phasespd,momentum = computeEnergyDold(Xfull,Yfull,ϕfull,t,N,c)
+
+xD,yD,ϕD,tD = monoSim(X,Y,ϕ,10)
 tD[end]
 sum(yD[1,:] .*DDI1(xD[1,:],N,2π,1))/N
 sum(yD[end,:].*DDI1(xD[end,:],N,2π,1))/N
+
+KED,PED,MWLD,phasespdD,momentumD = computeEnergyDold(xD,yD,ϕD,tD,N,c)
+plot(tD,momentumD)
+plot(tD,MWLD)
+plot(tD,KED.+PED)
+plot(tD,phasespdD)
+
+
+# t = [120]
+#     x = Xfull[t[1],:]
+#     y = Yfull[t[1],:]
+#     ϕ = ϕfull[t[1],:]
+#     xξ = DDI1(x,N,L,1)
+#     yξ = DDI1(y,N,0,1)
+#     (ẋ, ẏ, _, _, _, _, _, _, _) = fixedTimeOperations(N, x, y, ϕ, L, 0.0)
+#     B_ξ = ẋ.*yξ .- ẏ.*xξ
+#     ϕ_ξ = DDI1(ϕ,N,0,1)
+
+# plot(B_ξ,label="B_ξ")
+# plot!(ϕ_ξ,label="ϕ_ξ")
+# plot!(imag.(hilbert(B_ξ)),label="H(B_ξ)")
+# plot(abs.(ϕ_ξ .- imag.(hilbert(B_ξ))))
+# abs.(ϕ_ξ .- imag.(hilbert(B_ξ)))
+
+
+MWL = sum(y.*xξ)/ N
+B_ξ = ẋ.*yξ .- ẏ.*xξ
+
+# Compare MWL
+gr()
+title = "N=$N, Ak=$A, ϵ = 1e-6"
+plot(t,abs.(MWL.-MWL[1].-1e-16),xlabel="t (s)",ylabel = "MWL (m)",label="Castawave",yscale=:log10,title=title)
+plot!(tD,abs.(MWLD.-MWLD[1].-1e-16),label="Dold")
+# Compare energies
+plot(t,abs.(KE.+PE .- (KE[1]+PE[1]).-1e-16),xlabel="t (s)",ylabel = "Energy (J/kg)",label="Castawave",yscale=:log10,title=title)
+plot!(tD,abs.(KED.+PED.-(KED[1]+PED[1]).-1e-16),label="Dold")
+# Compare phasespd
+plot(t,abs.(phasespd.-phasespd[1].-1e-16),xlabel="t (s)",ylabel = "c (m/s)",label="Castawave",yscale=:log10,title=title)
+plot!(tD,abs.(phasespdD.-phasespdD[1].-1e-16),label="Dold")
 
 gr()
 function visualize(interval::Int, fps::Int)

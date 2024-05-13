@@ -36,8 +36,8 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     Ω = conformalMap(X .+ im*Y)
     R_ξ = DDI1(X,N,L,1) .+ im*DDI1(Y,N,0,1)
     R_ξξ = DDI2(X,N,L,1) .+ im*DDI2(Y,N,0,1)
-    Ω_ξ = -im*R_ξ.*Ω
-    Ω_ξξ = -Ω.*R_ξ.^2 .- im*Ω.*R_ξξ
+    Ω_ξ = DDI1(Ω,N,0,0)
+    Ω_ξξ = DDI2(Ω,N,0,0)
 
     H = conformalDepth(h)
     
@@ -141,29 +141,39 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
         end
 
         ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end,:], Yfull[end,:], ϕfull[end,:], L, h)
-        # determine timestep 
-        if length(t) < 5
-            Δt = 1e-6
-        else
-            thirdOrderMax = max(maximum(D2uDt2),maximum(D2vDt2),maximum(D3ϕDt3))
-            Δt = (ϵ*factorial(3)/thirdOrderMax)^(1/3)
-        end
         # For each point
         Xnext = zeros(N)
         Ynext = zeros(N)
         ϕnext = zeros(N)
+        dX = zeros(N,5)
+        dY = zeros(N,5)
+        dϕ = zeros(N,5)
         for i ∈ 1:N
             # From third order derivatives, extrapolate higher order using Lagrange polynomials
             # Handle first few timesteps separately
             if length(t) < 5
-                dX = LagrangeInterpolant(Xfull[:,i],t,length(t)-1)
-                dY = LagrangeInterpolant(Yfull[:,i],t,length(t)-1)
-                dϕ = LagrangeInterpolant(ϕfull[:,i],t,length(t)-1)
+                dX[i,:] = LagrangeInterpolant(Xfull[:,i],t,length(t)-1)
+                dY[i,:] = LagrangeInterpolant(Yfull[:,i],t,length(t)-1)
+                dϕ[i,:] = LagrangeInterpolant(ϕfull[:,i],t,length(t)-1)
             else
-                dX = LagrangeInterpolant(Xfull[end-4:end,i],t[end-4:end],5)
-                dY = LagrangeInterpolant(Yfull[end-4:end,i],t[end-4:end],5)
-                dϕ = LagrangeInterpolant(ϕfull[end-4:end,i],t[end-4:end],5)
+                dX[i,:] = LagrangeInterpolant(Xfull[end-4:end,i],t[end-4:end],5)
+                dY[i,:] = LagrangeInterpolant(Yfull[end-4:end,i],t[end-4:end],5)
+                dϕ[i,:] = LagrangeInterpolant(ϕfull[end-4:end,i],t[end-4:end],5)
             end
+        end
+
+        # Determing Timestep
+        if length(t) < 5
+            thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
+            fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+            Δt = (ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
+        else
+            thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
+            fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+            Δt = max((ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),1e-5)
+        end
+
+        for i ∈ 1:N
 
             # Use all these derivatives to get next timestep
             Xnext[i] = Xfull[end,i] +Δt * (ϕ_x[i]) +Δt^2/factorial(2)*DuDt[i] + Δt^3/factorial(3)*D2uDt2[i] +
