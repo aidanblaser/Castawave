@@ -11,10 +11,10 @@ include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldMono.jl")
 
-N = 128
-A = 0.2
+N = 256
+A = 0.4
 Δt = 0.001
-tf = 1.895
+tf = 5
 L = 2π;
 k = 1;
 h = 0;
@@ -45,9 +45,9 @@ MWL = sum(Y)/n
 MWL = simpsons_rule_periodic(X,Y)/(2π)
 
 N = 256;
-A = 0.1
+A = 0.4
 X,Y,ϕ,c = getIC(Inf,A,N÷2)
-tf = 10;
+tf = 1;
 Δt = 1e-3
 L = 2π
 h = 0.0
@@ -66,6 +66,45 @@ plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
 
 sum(Yfull[1,:] .*DDI1(Xfull[1,:],N,2π,1))/N
 sum(Yfull[end,:].*DDI1(Xfull[end,:],N,2π,1))/N
+
+# Check relations 
+half = length(t)÷2 + 100 
+ϕhalf = ϕfull[half,:]
+Xhalf = Xfull[half,:]
+Yhalf = Yfull[half,:]
+xξ = DDI1(Xhalf,N,L,1)
+yξ = DDI1(Yhalf,N,0,1)
+(ẋ, ẏ, _, _, _, _, _, _, _) = fixedTimeOperations(N, Xhalf, Yhalf, ϕhalf, L, 0.0);
+ψξ = ẋ.*yξ .- ẏ.*xξ
+ϕξ = DDI1(ϕhalf,N,0,1)
+ϕξL = ẋ.*xξ .+ ẏ.*yξ
+
+X = Xhalf
+Y = Yhalf
+Ω = conformalMap(X .+ im*Y)
+R_ξ = DDI1(X,N,L,1) .+ im*DDI1(Y,N,0,1)
+R_ξξ = DDI2(X,N,L,1) .+ im*DDI2(Y,N,0,1)
+Ω_ξ = DDI1(Ω,N,0,0)
+Ω_ξξ = DDI2(Ω,N,0,0)
+
+H = conformalDepth(h)
+
+# The matrix method described in Dold is used to find the normal derivative of the potential.
+A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H)
+ϕ_ξ, ϕ_ν = NormalInversion(ϕhalf, A, ℵ, N)
+plot(ϕ_ν)
+plot!(-ψξ)
+plot(ϕ_ν)
+plot(ϕ_ν .+ ψξ,label="ϕν + ψξ")
+plot!(ϕξL)
+plot(ϕ_ξ.-ϕξ)
+
+
+
+plot(ϕξ.-ϕξL)
+plot(ψξ,label="ψξ")
+plot!(ϕξ,label="ϕξ")
+plot!(-imag.(hilbert(ϕξ)),label="H(ϕξ)")
 
 # END OF SIMULATION CODE (remaining code are tests or modified methods)
 gr()
