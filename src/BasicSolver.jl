@@ -200,4 +200,3 @@ plotlyjs()
 surface(xvals,repeat(0:Δt:tf-offset,1,n),yvals,
 xlabel="x (m)",ylabel="t (s)",zlabel="y (m)",zlims=(-2,2),cbar=false)
 plot!(xvals[:,60],0:Δt:tf-offset,yvals[:,60],linewidth=5,linecolor=:red,label="trajectory")
-
