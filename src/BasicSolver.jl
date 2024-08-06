@@ -11,26 +11,30 @@ include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldMono.jl")
 
-N = 256
-A = 0.4
+N = 512
+n = N
+A = 0.3
 Δt = 0.001
-tf = 5
+tf = 1.95
 L = 2π;
 k = 1;
 h = 0;
 smoothing = false;
 alg = Vern9()
 
-X = [(α * L / n) - 0*A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
-Y = [(cos(k * α*L / n )) * A + 0*1/6*A^4*k^3*cos(k*α*L/n) .+ 0*(A^2*k / 2).+ 0*A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
-ϕ = [sqrt(9.81/k) * A   * sin(k*X[α]) for α in 1:n]
+# X = [(α * L / n) - 0*A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
+# Y = [(cos(k * α*L / n )) * A + 0*1/6*A^4*k^3*cos(k*α*L/n) .+ 0*(A^2*k / 2).+ 0*A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
+# ϕ = [sqrt(9.81/k) * A   * sin(k*X[α]) for α in 1:n]
+X = [(α * L / n) for α in n÷2:n+n÷2-1]
+Y = [(cos(k * α*L / n )) * A for α in n÷2:n+n÷2-1]
+ϕ = [sqrt(9.81/k) * A * sin(k*X[α]) for α in 1:n]
 # Use if you want a generic initial condition
 scatter(X,Y)
 scatter!(X,ϕ)
 # 
 # using MAT 
 if true
-    vars = matread(projectdir()*"/data/ClamondICn128.mat")
+    vars = matread(projectdir()*"/data/ClamondICSteepestN256.mat")
     X = vec(vars["X"]);
     Y = vec(vars["Y"]);
     ϕ = vec(vars["F"]);
@@ -39,20 +43,20 @@ end
 n = length(X)
 
 scatter(X,Y)
-
+scatter!(X,ϕ)
 
 MWL = sum(Y)/n
 MWL = simpsons_rule_periodic(X,Y)/(2π)
 
-N = 256;
-A = 0.4
+N = 1024;
+A = 0.3
 X,Y,ϕ,c = getIC(Inf,A,N÷2)
-tf = 1;
+tf = 5.0;
 Δt = 1e-3
 L = 2π
 h = 0.0
 tol = 1e-6
-smoothed = false
+smoothed = true
 
 ZC = X .+ im.*Y
 Zshift = ZC.* exp.(im*π/2)
@@ -61,6 +65,7 @@ scatter(real(ZC),imag(ZC))
 scatter(X,Y)
 
 Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=smoothed)
+scatter(Xfull[end,:], Yfull[end,:])
 t[end]
 plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
 
@@ -115,7 +120,7 @@ function visualize(interval::Int, fps::Int)
           dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", i[2]),
           xlims=(0,L),ylims = (-1.9,1.9),aspect_ratio=1)
     end every interval
-    gif(anim, projectdir()*"/plots/RK4noSmooth.gif", fps=fps)
+    gif(anim, projectdir()*"/plots/LinearTest.gif", fps=fps)
 end
 visualize(10, 10)
 
@@ -200,3 +205,19 @@ plotlyjs()
 surface(xvals,repeat(0:Δt:tf-offset,1,n),yvals,
 xlabel="x (m)",ylabel="t (s)",zlabel="y (m)",zlims=(-2,2),cbar=false)
 plot!(xvals[:,60],0:Δt:tf-offset,yvals[:,60],linewidth=5,linecolor=:red,label="trajectory")
+
+
+#Rapha's exporting and MATLAB conversion JLD2->H5
+using JLD2, HDF5
+df = h5open("","w")
+dh["X"] = Xfull
+dh["Y"] = Yfull
+dh["Phi"] = ϕfull
+dh["N"] = N
+dh["t"] = t
+dh["A"] = A
+close(df)
+
+# strname = "name"
+# ds = jldopen("","r")
+# df = h5open("","w")

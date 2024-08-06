@@ -140,7 +140,12 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
             ϕfull[end,:] = smooth(N,ϕfull[end,:],0,1)
         end
 
-        ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end,:], Yfull[end,:], ϕfull[end,:], L, h)
+        # ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end,:], Yfull[end,:], ϕfull[end,:], L, h)
+        
+        ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = try fixedTimeOperations(N, Xfull[end,:], Yfull[end,:], ϕfull[end,:], L, h)
+        catch e
+            return Xfull, Yfull, ϕfull, t
+        end
         # For each point
         Xnext = zeros(N)
         Ynext = zeros(N)
