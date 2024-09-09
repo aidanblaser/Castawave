@@ -11,13 +11,12 @@ using LaTeXStrings
 using Printf
 using Statistics
 
-function monoSim(X,Y,ϕ,T,plotting = nothing)
+function monoSim(N,X,Y,ϕ,T,plotting = nothing)
 directory = pwd();
 # Adjustable Parameters
 g = 9.81; # acc due to gravity. make sure Dold is set to same value
 k = 1;
 tl = T ; # length of simulation (seconds)
-N = 512; # Number of surface points
 ML = 2π*k; # Physical length of channel
 x =collect( 0 : ML/N : (ML) * (1 - 1/N)); # domain
 BW = 0; # bandwidth (set to 0 for no focusing packet)

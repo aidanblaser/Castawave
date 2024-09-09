@@ -5,6 +5,7 @@ using Printf
 using MAT
 using Trapz
 using Plots
+using JLD2
 plotlyjs()
 
 include(projectdir()*"/src/MainSolver.jl")
@@ -12,17 +13,18 @@ include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldMono.jl")
 
 N = 256
-A = 0.4
+n = N
+A = 0.5
 Δt = 0.001
 tf = 5
 L = 2π;
 k = 1;
-h = 0;
+h = 1;
 smoothing = false;
 alg = Vern9()
 
-X = [(α * L / n) - 0*A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
-Y = [(cos(k * α*L / n )) * A + 0*1/6*A^4*k^3*cos(k*α*L/n) .+ 0*(A^2*k / 2).+ 0*A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
+X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
+Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
 ϕ = [sqrt(9.81/k) * A   * sin(k*X[α]) for α in 1:n]
 # Use if you want a generic initial condition
 scatter(X,Y)
@@ -44,15 +46,15 @@ scatter(X,Y)
 MWL = sum(Y)/n
 MWL = simpsons_rule_periodic(X,Y)/(2π)
 
-N = 256;
-A = 0.4
+N = 128;
+A = 0.3
 X,Y,ϕ,c = getIC(Inf,A,N÷2)
-tf = 1;
-Δt = 1e-3
+tf = 4.0;
+Δt = 1e-4
 L = 2π
 h = 0.0
 tol = 1e-6
-smoothed = false
+smoothed = true
 
 ZC = X .+ im.*Y
 Zshift = ZC.* exp.(im*π/2)
@@ -62,13 +64,22 @@ scatter(X,Y)
 
 Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=smoothed)
 t[end]
+scatter(Xfull[end,:],Yfull[end,:])
 plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
 
 sum(Yfull[1,:] .*DDI1(Xfull[1,:],N,2π,1))/N
 sum(Yfull[end,:].*DDI1(Xfull[end,:],N,2π,1))/N
 
+@load projectdir()*"/data/focusing.jld2" x_o y_o p_o to
+Xfull = x_o;
+Yfull = y_o;
+ϕfull = p_o;
+t = to[:,1];
+N = 512
+
 # Check relations 
-half = length(t)÷2 + 100 
+half = length(t)÷2  - 100
+half = 1
 ϕhalf = ϕfull[half,:]
 Xhalf = Xfull[half,:]
 Yhalf = Yfull[half,:]
@@ -78,6 +89,9 @@ yξ = DDI1(Yhalf,N,0,1)
 ψξ = ẋ.*yξ .- ẏ.*xξ
 ϕξ = DDI1(ϕhalf,N,0,1)
 ϕξL = ẋ.*xξ .+ ẏ.*yξ
+plot(ϕξ,ylabel="ϕ_ξ")
+sum(ϕξ)
+
 
 X = Xhalf
 Y = Yhalf
@@ -95,16 +109,141 @@ A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H)
 plot(ϕ_ν)
 plot!(-ψξ)
 plot(ϕ_ν)
-plot(ϕ_ν .+ ψξ,label="ϕν + ψξ")
+plot(ϕ_ν .+ ψξ,label="ϕν + ψξ",xlabel="ξ",ylabel = "ϕν + ẏ xξ - ẋ yξ",title="Deviation from theory")
 plot!(ϕξL)
 plot(ϕ_ξ.-ϕξ)
 
+ds = xξ.^2 .+ yξ.^2
+plot(ds)
+dξdt = (imag.(hilbert(ψξ)).-ϕξ)./ ds
+plot(dξdt)
+plot(ϕξ,label="ϕξ")
+plot!(ψξ,label="ψξ")
+plot!(-imag.(hilbert(ϕξ)),label="-H(ϕξ)")
+plot!(imag.(hilbert(ψξ)),label="H(ψξ)")
+plot(imag.(hilbert(ψξ))./ϕξ .* ds)
 
+scatter(X,Y)
+plot(imag.(hilbert(ϕ_ξ)).+ψξ)
+plot(ẋ)
+phix = (ϕξ.*xξ .+ ψξ.*yξ)./ds
+plot!(phix)
+
+plot(ψξ)
+plot!(imag.(hilbert(ϕ_ξ)))
+plot(ϕ_ν,label="ϕ_ν")
+plot!(imag.(hilbert(ϕ_ξ )),label="H(ϕξ)")
+plot(ϕ_ν .- imag.(hilbert(ϕ_ξ)))
+mean(ds)
+dsmean = ds./mean(ds);
+plot(dsmean)
+plot(imag.(hilbert(ϕ_ν)).+ϕξ)
 
 plot(ϕξ.-ϕξL)
 plot(ψξ,label="ψξ")
 plot!(ϕξ,label="ϕξ")
-plot!(-imag.(hilbert(ϕξ)),label="H(ϕξ)")
+plot!(ϕ_ν,label="ϕν")
+plot!(ψξ .- sqrt.(ds)./(2*c))
+plot!(-imag.(hilbert(ϕξ)).- (ds),label="H(ϕξ)")
+plot!(imag.(hilbert(ψξ)),label="H(ψξ)")
+plot(ψξ .+ imag.(hilbert(ϕξ)) )
+plot!()
+plot(ϕξ .- imag.(hilbert(ψξ)))
+plot!(imag.(hilbert(dsmean)))
+plot(xξ)
+plot!(sqrt.(xξ.^2 + yξ.^2))
+plot(xξ)
+plot!(xξ.*sqrt.(xξ.^2 .+ yξ.^2))
+plot!(yξ./xξ)
+plot(ψξ)
+plot!(-imag.(hilbert(ϕξ)) - imag.(hilbert(ϕξ)).*sqrt.(ds))
+plot!(-imag.(hilbert(ϕξ)))
+plot((ψξ .+ imag.(hilbert(ϕξ))),label="difference")
+plot!(ψξ,label="ψξ")
+plot!(-imag.(hilbert(ϕξ)),label="-H(ϕξ)")
+
+diff1 = (ψξ .+ imag.(hilbert(ϕξ)));
+diff2 = ϕξ .- imag.(hilbert(ψξ));
+plot(diff1)
+plot!(diff2)
+plot(imag.(hilbert(diff1)).+diff2)
+plot(diff1.+diff2)
+
+# What can I add to ϕ to make hilbert transform work
+plot(ψξ .+ imag.(hilbert(ϕξ .+ ds.*dξdt)))
+plot(dξdt,label="dξ/dt")
+plot!(X.*N./2π,Y.*10)
+
+
+plot(ϕξ,label="ϕξ")
+plot!(-imag.(hilbert(ϕ_ν)),label="H(ϕν)")
+plot!(ϕξ + imag.(hilbert(ϕ_ν)),label="difference")
+ψξξ = DDI1(ψξ,N,0,1);
+b = A * ψξ .- ψξξ;
+ψν = ℵ \ b
+plot(ψν)
+plot!(ϕξ)
+plot(ϕξ.-ψν)
+plot(imag.(hilbert(ψν)))
+plot!(-ψξ)
+plot(imag.(hilbert(ψξ)).-ϕξ)
+plot(imag.(hilbert(ϕξ).-ψξ))
+
+
+# Look at curvature
+yξξ = DDI2(Y,N,0,1)
+xξξ = DDI2(X,N,2π,1)
+κ = (yξξ.*xξ .- xξξ.*yξ)./(ds.^(3/2))
+plot(κ)
+plot(κ.*ds)
+
+
+mean(xξ)
+scatter(X,Y)
+
+using Trapz
+# Try and integrate them 
+ψ = zeros(N)
+ϕ = zeros(N)
+for i ∈ 2:N
+    ϕ[i] = trapz((1:i).*2π/N,ϕξ[1:i])
+    ψ[i] = trapz((1:i).*2π/N,ψξ[1:i])
+end
+ϕ = ϕ .- mean(ϕ)
+ψ = ψ.-mean(ψ)
+
+plot(ϕ)
+plot!(ψ)
+plot(ϕ .- imag.(hilbert(ψ)))
+plot!(diff1)
+plot!(diff2)
+plot(sqrt.(ds))
+
+
+#
+function hilbert_circ(ϕ,N)
+    xirange = (1:N).*(2π/N)
+    val = copy(ϕ)
+    for i ∈ 1:N
+        integrand = ϕ[i]*cot.((ϕ.-ϕ[i])./2)
+        integrand[i] = 0
+        val[i] = 1/(2π)*trapz(xirange,integrand)
+    end
+return val
+end
+
+
+
+
+
+
+
+# Energy relationship 
+KE = sum(0.5* ϕhalf.*ϕ_ν)
+A = 0.3
+KE_theory = c/2 * (A^2 / 2 - A^4 / 4 - 35* A^6 / 48)*sqrt(9.81)*2π
+PE = sum(0.5*Yhalf.^2 .*xξ)
+PE_theory = 2π.*(A^2/4 - A^4/8 - 19* A^6/6)
 
 # END OF SIMULATION CODE (remaining code are tests or modified methods)
 gr()
@@ -131,7 +270,20 @@ plot(tD,momentumD)
 plot(tD,MWLD)
 plot(tD,KED.+PED)
 plot(tD,phasespdD)
+using JLD2
+jldsave(projectdir()*"/data/shallowOverturnN1024h06A02.jld2",x = Xfull,y= Yfull,ϕ= ϕfull,t= t,c= c,h= h,N= N,A=A) 
 
+using HDF5
+fid=h5open("shallowOverturnN1024h09A03.h5", "w")
+fid["X"]= Xfull;
+fid["Y"]=Yfull;
+fid["Phi"]=ϕfull;
+fid["N"]=N;
+fid["t"]=t;
+fid["A"]=A;
+fid["h"] = h;
+fid["c"] = c;
+close(fid)
 
 # t = [120]
 #     x = Xfull[t[1],:]

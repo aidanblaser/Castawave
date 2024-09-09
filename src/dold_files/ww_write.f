@@ -2,7 +2,7 @@
       
       implicit double precision (a-h,o-z)
       integer niv
-      parameter(niv = 256)
+      parameter(niv = 2048)
       common /profil/ x(niv),y(niv),f(niv),po(niv),po1(niv),
      *					po2(niv), 
      *                 gty,h,t,ym,enk,enp,ent,en0,dt,dtl,En,
@@ -26,7 +26,7 @@ C	  gty=1d0
       read(7,*) tl
       close(7)
       open(12,file='wl.txt',action='read',status='old',iostat=ierrorx)
-      read(12,*) wl
+      read(12,*) wl 
       close(12)	     
       open(8,file='xc.txt',action='read',status='old',iostat=ierrorx)
       read(8,*) x
