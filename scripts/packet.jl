@@ -3,7 +3,7 @@ using DrWatson
 using Plots
 using FFTW
 
-N = 2048; # Number of surface points (must be changed in ww_write.f)
+N = 4096; # Number of surface points (must be changed in ww_write.f)
 ML = 100; # Physical length of channel
 xₒ = -30; # Phase shift to match initial conditions with lab data
 x =collect( xₒ : ML/N : xₒ + (ML) * (1 - 1/N)); # domain
@@ -173,9 +173,9 @@ t[end]
 visualize(10, 10)
 
 
-jldsave(projectdir()*"/data/packetbreakN2048.jld2",x = x,y= y,ϕ= ϕ,t= t,N= N,S=S) 
+jldsave(projectdir()*"/data/packetbreakN4096.jld2",x = x,y= y,ϕ= ϕ,t= t,N= N,S=S) 
 using HDF5
-file = h5open(projectdir()*"/data/packetbreakN2048.h5","w")
+file = h5open(projectdir()*"/data/packetbreakN4096.h5","w")
 file["x"] = x 
 file["y"] = y 
 file["ϕ"] = ϕ

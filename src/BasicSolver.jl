@@ -12,20 +12,20 @@ include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldMono.jl")
 
-N = 256
+N = 512
 n = N
-A = 0.5
+A = 0.45
 Δt = 0.001
-tf = 5
+tf = 1.6
 L = 2π;
 k = 1;
-h = 1;
+h = 0.0;
 smoothing = false;
 alg = Vern9()
 
-X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
-Y = [(cos(k * α*L / n )) * A + 1/6*A^4*k^3*cos(k*α*L/n) .+ (A^2*k / 2).+ A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
-ϕ = [sqrt(9.81/k) * A   * sin(k*X[α]) for α in 1:n]
+X = [(α * L / n) - A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
+Y = [(cos(k * α*L / n )) * A + 0*1/6*A^4*k^3*cos(k*α*L/n) .+ 0*(A^2*k / 2).+ 0*A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
+ϕ = [sqrt(9.81/k) * A * exp.(k*Y[α])   * sin(k*X[α]) for α in 1:n]
 # Use if you want a generic initial condition
 scatter(X,Y)
 scatter!(X,ϕ)
@@ -66,6 +66,30 @@ Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = to
 t[end]
 scatter(Xfull[end,:],Yfull[end,:])
 plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
+
+plot(Xfull[end,:],Yfull[end,:],aspect_ratio=1,legend=false)
+
+tdesired = collect(range(0,t[end],length=400))
+indices = Int64.(ones(length(tdesired)))
+for i ∈ 1:length(tdesired)
+    indices[i] = argmin(abs.(t .- tdesired[i]))
+end
+
+
+plot(t)
+
+
+gr()
+anim = @animate for i ∈ indices
+    time = @sprintf("%0.1f",t[i]);
+    scatter(mod.(Xfull[i,:] .+ π,2π) , Yfull[i,:],xlabel=L"x \, \, [m]",ylabel=L"y\, \, [m]",
+    title = "t = $time s", titlefont=font(14,"Computer Modern"),
+    xlims=(0,2π),ylims=(-1.7,2),guidefont=font(12,"Computer Modern"),tickfont=font(9,"Computer Modern"),
+    framestyle= :box,label=false,markersize=2,markerstrokewidth=0,color=:dodgerblue,aspect_ratio=1,dpi=200)
+end 
+gif(anim, projectdir()*"/plots/breakingVisual.gif", fps = 30)
+
+
 
 sum(Yfull[1,:] .*DDI1(Xfull[1,:],N,2π,1))/N
 sum(Yfull[end,:].*DDI1(Xfull[end,:],N,2π,1))/N
