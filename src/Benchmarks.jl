@@ -11,7 +11,7 @@ include(projectdir()*"/src/MainSolver.jl")
 n = 128
 A = 0.3
 Δt = 0.01
-tf = 9
+tf = 3
 L = 2π;
 k = 1;
 h = 0.0;
@@ -45,7 +45,7 @@ A*cos.(θ.(a,t,A,k)) .+ A^4*k^3*cos.(2*θ.(a,t,A,k)) .- 1/24*A^5*k^4*cos.(θ.(a,
 arange = range(0,step=2π/(10*n),length=10*n)
 
 # Run simulation
-Xfull, Yfull, ϕfull, t= @time runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h)
+Xfull, Yfull, ϕfull, t= @time runSim(n, X, Y, ϕ, Δt, tf,L,h)
 
 plot(Xfull[end,:],Yfull[end,:])
 

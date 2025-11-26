@@ -15,7 +15,7 @@ using DifferentialEquations
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64)
+function fixedTimeOperations(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float64}, L::Real, h::Real)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -85,7 +85,7 @@ function TimeStep(du,u,p,t)
 end
 
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0; ϵ = 1e-5,smoothing=true)
+function runSim(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float64}, dt::Real, tf::Real,L::Real,h::Real; ϵ = 1e-5,smoothing=true)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
