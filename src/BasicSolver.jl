@@ -12,11 +12,11 @@ include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldMono.jl")
 
-N = 512
+N = 200
 n = N
 A = 0.45
 Δt = 0.001
-tf = 1.6
+tf = 1.3
 L = 2π;
 k = 1;
 h = 0.0;
@@ -25,7 +25,7 @@ alg = Vern9()
 
 X = [(α * L / n) - A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
 Y = [(cos(k * α*L / n )) * A + 0*1/6*A^4*k^3*cos(k*α*L/n) .+ 0*(A^2*k / 2).+ 0*A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
-ϕ = [sqrt(9.81/k) * A * exp.(k*Y[α])   * sin(k*X[α]) for α in 1:n]
+ϕ = [-sqrt(9.81/k) * A * sin(k*α*L/n) for α in 1:n]
 # Use if you want a generic initial condition
 scatter(X,Y)
 scatter!(X,ϕ)
@@ -62,7 +62,7 @@ scatter(real(ZC),imag(ZC))
 
 scatter(X,Y)
 
-Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=smoothed)
+Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=true)
 t[end]
 scatter(Xfull[end,:],Yfull[end,:])
 plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")

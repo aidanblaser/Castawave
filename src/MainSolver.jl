@@ -119,6 +119,9 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     YS = Y / L̃
     ϕS = ϕ / (L̃)^(3/2)
 
+    # Add breaking parameter 
+    breaking = false
+
     
     #MWL
     #MWL =  sum(DDI1(X,N,L,1).*Y)/L
@@ -128,66 +131,91 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     t = [0.0]
 
     # Create and initialize the timeseries fields. 
-    Xfull = XS';
-    Yfull = YS';
-    ϕfull = ϕS';
+    Xfull = Vector{Vector{Float64}}()
+    Yfull = Vector{Vector{Float64}}()
+    ϕfull = Vector{Vector{Float64}}()
+    push!(Xfull,XS)
+    push!(Yfull,YS)
+    push!(ϕfull,ϕS)
 
-    while t[end] <= tf
-        # smooth data if desired (and not for first timestep)
-        if smoothing && length(t) > 1
-            Xfull[end,:] = smooth(N,Xfull[end,:],L,1)
-            Yfull[end,:] = smooth(N,Yfull[end,:],0,1)
-            ϕfull[end,:] = smooth(N,ϕfull[end,:],0,1)
-        end
+    # Preallocate derivative matrices
+    dX = Array{Float64}(undef,N,5)
+    dY = Array{Float64}(undef,N,5)
+    dϕ = Array{Float64}(undef,N,5)
 
-        ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end,:], Yfull[end,:], ϕfull[end,:], L, h)
-        # For each point
-        Xnext = zeros(N)
-        Ynext = zeros(N)
-        ϕnext = zeros(N)
-        dX = zeros(N,5)
-        dY = zeros(N,5)
-        dϕ = zeros(N,5)
-        for i ∈ 1:N
-            # From third order derivatives, extrapolate higher order using Lagrange polynomials
-            # Handle first few timesteps separately
-            if length(t) < 5
-                dX[i,:] = LagrangeInterpolant(Xfull[:,i],t,length(t)-1)
-                dY[i,:] = LagrangeInterpolant(Yfull[:,i],t,length(t)-1)
-                dϕ[i,:] = LagrangeInterpolant(ϕfull[:,i],t,length(t)-1)
-            else
-                dX[i,:] = LagrangeInterpolant(Xfull[end-4:end,i],t[end-4:end],5)
-                dY[i,:] = LagrangeInterpolant(Yfull[end-4:end,i],t[end-4:end],5)
-                dϕ[i,:] = LagrangeInterpolant(ϕfull[end-4:end,i],t[end-4:end],5)
+    while t[end] <= tf && !breaking
+        try
+            # smooth data if desired (and not for first timestep)
+            if smoothing && length(t) > 1
+                Xfull[end] = smooth(N,Xfull[end],2π,1)
+                Yfull[end] = smooth(N,Yfull[end],0,1)
+                ϕfull[end] = smooth(N,ϕfull[end],0,1)
             end
-        end
 
-        # Determing Timestep
-        if length(t) < 5
-            thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
-            fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
-            Δt = (ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
-        else
-            thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
-            fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
-            Δt = max((ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),1e-5)
-        end
+            # Determine velocities to timestep particles
+            ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end], Yfull[end], ϕfull[end], 2π, h)
 
-        for i ∈ 1:N
 
-            # Use all these derivatives to get next timestep
-            Xnext[i] = Xfull[end,i] +Δt * (ϕ_x[i]) +Δt^2/factorial(2)*DuDt[i] + Δt^3/factorial(3)*D2uDt2[i] +
-            sum([Δt^n/factorial(n)*dX[n-3] for n=4:8])
-            Ynext[i] = Yfull[end,i] +Δt * (ϕ_y[i]) + Δt^2/factorial(2)*DvDt[i] +Δt^3/factorial(3)*D2vDt2[i] +
-            sum([Δt^n/factorial(n)*dY[n-3] for n=4:8])
-            ϕnext[i] = ϕfull[end,i] +Δt * (DϕDt[i]) +Δt^2/factorial(2)*D2ϕDt2[i] +Δt^3/factorial(3)*D3ϕDt3[i]+
-            sum([Δt^n/factorial(n)*dϕ[n-3] for n=4:8])
+
+
+            # For each point
+            Xnext = similar(XS)
+            Ynext = similar(YS)
+            ϕnext = similar(ϕS)
+            for i ∈ 1:N
+                # From third order derivatives, extrapolate higher order using Lagrange polynomials
+                # Handle first few timesteps separately
+                if length(t) < 5
+                    dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in 1:length(t)],t,length(t)-1)
+                    dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in 1:length(t)],t,length(t)-1)
+                    dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in 1:length(t)],t,length(t)-1)
+                else
+                    dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
+                    dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
+                    dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
+                end
+            end
+
+            # Determing Timestep
+            if length(t) < 5
+                thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
+                fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                Δt = (ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
+            else
+                thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
+                fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                Δt = min((ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),dt)
+                # Minimum timestep 1e-5
+                Δt = max(Δt,1e-5)
+            end
+
+            for i ∈ 1:N
+
+                # Use all these derivatives to get next timestep
+                Xnext[i] = Xfull[end][i] +Δt * (ϕ_x[i]) +Δt^2/factorial(2)*DuDt[i] + Δt^3/factorial(3)*D2uDt2[i] +
+                sum([Δt^n/factorial(n)*dX[n-3] for n=4:8])
+                Ynext[i] = Yfull[end][i] +Δt * (ϕ_y[i]) + Δt^2/factorial(2)*DvDt[i] +Δt^3/factorial(3)*D2vDt2[i] +
+                sum([Δt^n/factorial(n)*dY[n-3] for n=4:8])
+                ϕnext[i] = ϕfull[end][i] +Δt * (DϕDt[i]) +Δt^2/factorial(2)*D2ϕDt2[i] +Δt^3/factorial(3)*D3ϕDt3[i]+
+                sum([Δt^n/factorial(n)*dϕ[n-3] for n=4:8])
+            end
+            # Append these values to the result
+            push!(Xfull,Xnext)
+            push!(Yfull,Ynext)
+            push!(ϕfull,ϕnext)
+            push!(t,t[end] + Δt)
+        catch e
+            if e isa ArgumentError 
+                println("Surface became multi-valued. Aborting simulation.")
+                breaking = true
+            else
+                rethrow(e)
+            end    
         end
-        # Append these values to the result
-        Xfull = vcat(Xfull, Xnext')
-        Yfull = vcat(Yfull, Ynext')
-        ϕfull = vcat(ϕfull, ϕnext')
-        push!(t,t[end] + Δt)
     end
-    return Xfull, Yfull, ϕfull, t
+    # Reshape into matrix 
+    Xmatrix = permutedims(hcat(Xfull...))
+    Ymatrix = permutedims(hcat(Yfull...))
+    ϕmatrix = permutedims(hcat(ϕfull...))
+    return Xmatrix, Ymatrix, ϕmatrix, t
 end
