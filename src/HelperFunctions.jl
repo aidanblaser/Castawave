@@ -7,6 +7,7 @@ using DrWatson
 using Plots
 using LinearAlgebra 
 using Statistics
+using Polynomials
 
 include("Constants.jl")
 
@@ -80,7 +81,7 @@ function DDI2(Ω::Vector, N,offset, q=0)
 
     for i in 1:N
         points = [Ω[i],Ω[mod1(i+1, N)]+offset*fld(i,N) + Ω[mod1(i-1, N)]+offset*fld(i-2,N), Ω[mod1(i+2, N)]+offset*fld(i+1,N) + Ω[mod1(i-2, N)]+offset*fld(i-3,N), Ω[mod1(i+3, N)]+offset*fld(i+2,N) + Ω[mod1(i-3, N)]+offset*fld(i-4,N), Ω[mod1(i+4, N)]+offset*fld(i+3,N) + Ω[mod1(i-4, N)]+offset*fld(i-5,N), Ω[mod1(i+5, N)]+offset*fld(i+4,N) + Ω[mod1(i-5, N)]+offset*fld(i-6,N)]
-        Ω_pp[i] = 2*sum(COEFFICIENTS2 .* points)
+        Ω_pp[i] = sum(COEFFICIENTS2 .* points)
     end
     # for i in 1:N
     #     Ω_pp[i] = (16*(Ω[mod1(i+1,N)]+offset*fld(i,N)) + 16*(Ω[mod1(i-1,N)]+offset*fld(i-2,N)) - (Ω[mod1(i+2,N)]+offset*fld(i+1,N)) - (Ω[mod1(i-2,N)]+offset*fld(i-3,N)) - 30*Ω[i])/12
@@ -133,11 +134,43 @@ function ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H=0.0)
         end
     end
         
-    A = real(C) 
+    A = real(C)
     B = imag(C)
 
-    ℵ = π * I - B   # Identity matrix I from LinearAlgebra to subtract B from pi diagonal.
+    ℵ = factorize(π*I - B)  # Identity matrix I from LinearAlgebra to subtract B from pi diagonal.
 
+    return A,B,ℵ
+end
+
+function ABDold(Ω,Ω_ξ,Ω_ξξ,N,H=0.0)
+    u = real(Ω)
+    v = imag(Ω)
+    u1 = real(Ω_ξ)
+    v1 = imag(Ω_ξ)
+    s = real(Ω_ξξ)
+    d = imag(Ω_ξξ)
+
+    A = zeros(N,N)
+    B = zeros(N,N)
+
+    for j ∈ 1:N
+        for i ∈ 1:j
+            cr = u[i]-u[j]
+            ci = v[i]-v[j]
+            cs = cr*cr+ci*ci
+            cr = cr/cs
+            ci = ci/cs
+            B[i,j] = v1[i]*cr - u1[i]*ci
+            A[i,j] = u1[i]*cr + v1[i]*ci
+            B[j,i] = u1[j]*ci - v1[j]*cr
+            A[j,i] = -u1[j]*cr - v1[j]*ci
+            cs = u1[j]*u1[j]+v1[j]*v1[j]
+            cs = cs+cs
+            B[j,j] = (d[j]*u1[j]-s[j]*v1[j])/cs
+            A[j,j] = (s[j]*u1[j]+d[j]*v1[j])/cs
+        end
+        ℵ = (π *I - B)
+    end
     return A,B,ℵ
 end
 
@@ -162,7 +195,7 @@ function NormalInversion(ϕ, A, ℵ, N)
     ϕ_ξξ = DDI2(ϕ, N,0,1)
 
     # Important: here the * is not element wise to get the sum A*ϕ_ξ for each one-element row entry of the resulting column vector, while the difference is element wise to subtract ϕ_ξξ[i] from each of the summed entries.
-    b = (A * ϕ_ξ) .- ϕ_ξξ    
+    b = ((A * ϕ_ξ) .- ϕ_ξξ)
 
     # Ax = b using the efficient \ operator, where x is the vector of tangential derivatives
     ϕ_ν = ℵ \ b
@@ -193,6 +226,58 @@ function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     return ϕ_D, ϕ_t
 end
 
+function TimeDerivatives(R_ξ, ϕ_x, ϕ_y, A, ℵ, N,Y)
+    #=
+    TimeDerivatives is a function that computes up to the third Lagrangian time derivative
+    of both the positions (x,y) and velocity potential ϕ
+    =#
+
+    # First derivatives of x,y just found from ϕ_x, ϕ_y
+    DϕDt = 0.5 .* (ϕ_x.^2 .+ ϕ_y.^2) .- GRAVITY.*Y
+
+    # First, get Eulerian time derivatives of velocities
+    ϕξt, ϕνt = NormalInversion(-GRAVITY.*Y .- 0.5 .*(ϕ_x.^2 .+ ϕ_y.^2), A, ℵ, N)
+    ut, vt = RealPhi(R_ξ,ϕξt,ϕνt)
+
+    # Next, get gradient of velocity fields
+    xξ = real(R_ξ)
+    yξ = imag(R_ξ)
+    spacing = xξ.^2 .+ yξ.^2
+    uξ = DDI1(ϕ_x,N,0,1)
+    vξ = DDI1(ϕ_y,N,0,1)
+    utξ = DDI1(ut,N,0,1)
+    vtξ = DDI1(vt,N,0,1)
+    ux = (uξ.*xξ .- vξ.*yξ)./spacing
+    vy = -ux
+    vx = (uξ.*yξ .+ vξ.*xξ)./spacing
+    uy = vx
+    utx = (utξ.*xξ .- vtξ.*yξ)./spacing
+    vty = -utx
+    vtx = (utξ.*yξ .+ vtξ.*xξ)./spacing
+    uty = vtx
+    uxξ = DDI1(ux,N,0,1)
+    vxξ = DDI1(vx,N,0,1)
+    uxx = (uxξ.*xξ .- vxξ.*yξ)./spacing
+    vxx = (uxξ.*yξ .+ vxξ.*xξ)./spacing
+    
+
+    # Next, use this to get Lagrangian time derivatives
+    DuDt = ut .+ ϕ_x .* ux .+ ϕ_y .* uy
+    DvDt = vt .+ ϕ_x .* vx .+ ϕ_y .* vy
+    D2ϕDt2 = ϕ_x .* DuDt .+ ϕ_y .* DvDt .- GRAVITY .* ϕ_y
+
+    # Now do third order, need to first get utt Eulerian
+    ϕttξ, ϕttν = NormalInversion(-ϕ_x .* ut .- ϕ_y .* vt,A, ℵ, N)
+    utt,vtt = RealPhi(R_ξ,ϕttξ,ϕttν)
+
+    # Compute third order time derivatives
+    D2uDt2 = utt .+ 2 .*(ϕ_x .* utx .+ ϕ_y.*uty) .+ ut.*ux .+ vt.*vx .+ (ux.^2 .+ vx.^2).*ϕ_x .+ (ϕ_x.^2 .- ϕ_y.^2).* uxx .+ 2 .* ϕ_x .* ϕ_y .* vxx
+    D2vDt2 = vtt .+ 2 .*(ϕ_x .* vtx .+ ϕ_y.*vty) .+ ut.*vx .- vt.*ux .+ (ux.^2 .+ vx.^2).*ϕ_y .+ (ϕ_x.^2 .- ϕ_y.^2).* vxx .- 2 .* ϕ_x .* ϕ_y .* uxx
+    D3ϕDt3 = DuDt.^2 .+ DvDt.^2 .+ ϕ_x .* D2uDt2 .+ ϕ_y .* D2vDt2 .- GRAVITY.*DvDt
+
+    return DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
+end
+
 
 
 function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
@@ -221,6 +306,80 @@ function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
 
     return Xn, Yn, ϕn
 end
+
+function LagrangeInterpolant(ϕ,tReal,l)
+    #=
+    LagrangeInterpolant is a function which, given l previous points in time,
+    forms a Lagrange interpolating polynomial of order l. In practice, this is
+    performed on the third order time derivatives of X,Y,ϕ. This way, we can 
+    use the coefficients to predict up to the (l+3)th order time derivatives
+    using this interpolating polynomial in time. We then output those higher
+    order derivatives to use for Taylor timestepping.
+
+    Inputs:
+    ϕ - a vector of of function values to interpolate 
+    tReal - a vector of times where each function value is taken
+    =#
+    # Shift t-values so that t[end] = 0 (makes derivatives simpler to compute)
+    t = tReal .- tReal[end]
+    # Create empty vector of derivative estimates (up to 5th)
+    dϕ = zeros(5)
+    if l == 0 # i.e. first timestep 
+        nothing # if only one point, can't estimate further
+    end
+
+    if l == 1  #i.e. two point linear fit 
+        p1 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p1,1)(0)
+    end 
+
+    if l == 2  #i.e. three point quadratic fit 
+        p2 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p2,1)(0)
+        dϕ[2] = derivative(p2,2)(0)
+    end
+
+    if l == 3 #i.e. four point cubic fit 
+        p3 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p3,1)(0)
+        dϕ[2] = derivative(p3,2)(0)
+        dϕ[3] = derivative(p3,3)(0)
+    end
+
+    if l == 4 #i.e. five point quartic fit 
+        p4 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p4,1)(0)
+        dϕ[2] = derivative(p4,2)(0)
+        dϕ[3] = derivative(p4,3)(0)
+        dϕ[4] = derivative(p4,4)(0)
+    end
+
+    if l == 5 #i.e. six point quintic fit 
+        p5 = LagrangeInterpolation(t,ϕ)
+        dϕ[1] = derivative(p5,1)(0)
+        dϕ[2] = derivative(p5,2)(0)
+        dϕ[3] = derivative(p5,3)(0)
+        dϕ[4] = derivative(p5,4)(0)
+        dϕ[5] = derivative(p5,5)(0)
+    end
+
+    return dϕ
+end
+
+function LagrangeInterpolation(t,ϕ)
+    n = length(t)
+    Lagrange = [Polynomial(1.0) for i=1:n]
+    for i in 1:n
+        for j in 1:n
+            if i != j
+                Lagrange[i] *= Polynomial([-t[j], 1]) / (t[i] - t[j])
+            end
+        end
+    end
+    return sum(ϕ[i] * Lagrange[i] for i in 1:n)
+end
+
+
 
 function RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
     #=
@@ -366,26 +525,31 @@ function computeEnergy(sol,n,L=2π)
     return KE, PE , MWL_check, phasespd
 end
 
-function computeEnergyDold(sol,N,L=2π)
+function computeEnergyDold(xvals,yvals,ϕvals,time,N,c,L=2π)
     KE = [];
     PE = [];
     MWL_check = [];
     phasespd = [];
-    for t ∈ sol.t 
-        x = sol(t)[1:N]
-        y = sol(t)[N+1:2*N]
-        ϕ = sol(t)[2*N+1:end]
+    momentum = [];
+    for t ∈ enumerate(time)
+        x = xvals[t[1],:]
+        y = yvals[t[1],:]
+        ϕ = ϕvals[t[1],:]
         xξ = DDI1(x,N,L,1)
         yξ = DDI1(y,N,0,1)
-        Ω = conformalMap(x .+ im.*y)
-        u = real(Ω)
-        v = imag(Ω)
-        MWL = sum(xξ.*y)/N
-        Kinetic = sum(0.5*(ϕ.*(v .* xξ .- u .* yξ)))
-        Potential = sum(0.5*GRAVITY.*xξ.*(y.-MWL).^2)
+        (ẋ, ẏ, _, _, _, _, _, _, _) = fixedTimeOperations(N, x, y, ϕ, L, 0.0)
+        
+        MWL = sum(y.*xξ)/ N
+        B_ξ = ẋ.*yξ .- ẏ.*xξ
+        integrand = -1/2 * ϕ .* B_ξ
+        Kinetic = sum(integrand)*(2π)/N
+        Potential = sum(GRAVITY/2 * (y).^2 .* xξ)*2π/N
+        momIntegral = sum(ẋ.*xξ)/N 
+        append!(MWL_check,MWL)
         append!(KE,Kinetic)
         append!(PE,Potential)
-        append!(MWL_check,MWL)
+        append!(phasespd,median(B_ξ./yξ))
+        append!(momentum,momIntegral)
     end
-    return KE, PE, MWL_check
+    return KE, PE, MWL_check, phasespd, momentum
 end

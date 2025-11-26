@@ -15,7 +15,7 @@ using DifferentialEquations
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float64, h::Float64,smoothing=false)
+function fixedTimeOperations(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float64}, L::Real, h::Real)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -36,8 +36,8 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     Ω = conformalMap(X .+ im*Y)
     R_ξ = DDI1(X,N,L,1) .+ im*DDI1(Y,N,0,1)
     R_ξξ = DDI2(X,N,L,1) .+ im*DDI2(Y,N,0,1)
-    Ω_ξ = -im*R_ξ.*Ω
-    Ω_ξξ = -Ω.*R_ξ.^2 .- im*Ω.*R_ξξ
+    Ω_ξ = DDI1(Ω,N,0,0)
+    Ω_ξξ = DDI2(Ω,N,0,0)
 
     H = conformalDepth(h)
     
@@ -52,13 +52,12 @@ function fixedTimeOperations(N::Int, X::Vector, Y::Vector, ϕ::Vector, L::Float6
     ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ, N)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
-    ϕ_D, ϕ_t = PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
+    
+    # Use all this to compute up to third order time derivatives
+    DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = TimeDerivatives(R_ξ, ϕ_x, ϕ_y, A, ℵ, N,Y)
 
-    # The quantities for second-order Taylor series timestepping are the material derivatives. Not needed for the RK4 scheme.
-    # U_D, V_D, ϕ_DD = PhiSecondTimeDer(R_ξ, ϕ_x, ϕ_y, ϕ_t, A, ℵ, N, ϕ_ξ, ϕ_ν)
-
-    return ϕ_x, ϕ_y, ϕ_D
+    return ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
 end
 
 function TimeStep(du,u,p,t)
@@ -86,7 +85,7 @@ function TimeStep(du,u,p,t)
 end
 
 
-function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float64,L = 2π,h=0.0;smoothing=false,MWL_reset=false,alg = Vern9(),reltol=1e-6)
+function runSim(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float64}, dt::Real, tf::Real,L::Real,h::Real; ϵ = 1e-5,smoothing=true)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -120,65 +119,103 @@ function runSim(N::Int, X::Vector, Y::Vector, ϕ::Vector, dt::Float64, tf::Float
     YS = Y / L̃
     ϕS = ϕ / (L̃)^(3/2)
 
+    # Add breaking parameter 
+    breaking = false
+
     
     #MWL
-    MWL =  sum(DDI1(X,N,L,1).*Y)/L
+    #MWL =  sum(DDI1(X,N,L,1).*Y)/L
 
-    t = 0.0 #initial time
-    i = 1   # timeseries index counter.
-    l = ceil(Int, tf/dt) + 2   # Number of timesteps
+
+    # Initialize time vector
+    t = [0.0]
 
     # Create and initialize the timeseries fields. 
-    X_timeseries = zeros((l, N))
-    Y_timeseries = zeros((l, N))
-    ϕ_timeseries = zeros((l, N))
-    time = collect(0:dt:tf)
+    Xfull = Vector{Vector{Float64}}()
+    Yfull = Vector{Vector{Float64}}()
+    ϕfull = Vector{Vector{Float64}}()
+    push!(Xfull,XS)
+    push!(Yfull,YS)
+    push!(ϕfull,ϕS)
 
-    X_timeseries[1,:] = XS
-    Y_timeseries[1,:] = YS
-    ϕ_timeseries[1,:] = ϕS
+    # Preallocate derivative matrices
+    dX = Array{Float64}(undef,N,5)
+    dY = Array{Float64}(undef,N,5)
+    dϕ = Array{Float64}(undef,N,5)
 
-    initial = vcat(XS,YS,ϕS)
-    params = [N,L,h,smoothing,MWL]
+    while t[end] <= tf && !breaking
+        try
+            # smooth data if desired (and not for first timestep)
+            if smoothing && length(t) > 1
+                Xfull[end] = smooth(N,Xfull[end],2π,1)
+                Yfull[end] = smooth(N,Yfull[end],0,1)
+                ϕfull[end] = smooth(N,ϕfull[end],0,1)
+            end
 
-    # Callback 1: smoothing 
-    function affect!(integrator)
-        N = Int(integrator.p[1])
-        L = integrator.p[2]
-        integrator.u[1:N] = smooth(N,integrator.u[1:N],L,1)
-        integrator.u[N+1:2*N] = smooth(N,integrator.u[N+1:2*N],0,1)
-        integrator.u[2*N+1:3*N] = smooth(N,integrator.u[2*N+1:3*N],0,1)
+            # Determine velocities to timestep particles
+            ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end], Yfull[end], ϕfull[end], 2π, h)
+
+
+
+
+            # For each point
+            Xnext = similar(XS)
+            Ynext = similar(YS)
+            ϕnext = similar(ϕS)
+            for i ∈ 1:N
+                # From third order derivatives, extrapolate higher order using Lagrange polynomials
+                # Handle first few timesteps separately
+                if length(t) < 5
+                    dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in 1:length(t)],t,length(t)-1)
+                    dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in 1:length(t)],t,length(t)-1)
+                    dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in 1:length(t)],t,length(t)-1)
+                else
+                    dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
+                    dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
+                    dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
+                end
+            end
+
+            # Determing Timestep
+            if length(t) < 5
+                thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
+                fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                Δt = (ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
+            else
+                thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
+                fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                Δt = min((ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),dt)
+                # Minimum timestep 1e-5
+                Δt = max(Δt,1e-5)
+            end
+
+            for i ∈ 1:N
+
+                # Use all these derivatives to get next timestep
+                Xnext[i] = Xfull[end][i] +Δt * (ϕ_x[i]) +Δt^2/factorial(2)*DuDt[i] + Δt^3/factorial(3)*D2uDt2[i] +
+                sum([Δt^n/factorial(n)*dX[n-3] for n=4:8])
+                Ynext[i] = Yfull[end][i] +Δt * (ϕ_y[i]) + Δt^2/factorial(2)*DvDt[i] +Δt^3/factorial(3)*D2vDt2[i] +
+                sum([Δt^n/factorial(n)*dY[n-3] for n=4:8])
+                ϕnext[i] = ϕfull[end][i] +Δt * (DϕDt[i]) +Δt^2/factorial(2)*D2ϕDt2[i] +Δt^3/factorial(3)*D3ϕDt3[i]+
+                sum([Δt^n/factorial(n)*dϕ[n-3] for n=4:8])
+            end
+            # Append these values to the result
+            push!(Xfull,Xnext)
+            push!(Yfull,Ynext)
+            push!(ϕfull,ϕnext)
+            push!(t,t[end] + Δt)
+        catch e
+            if e isa ArgumentError 
+                println("Surface became multi-valued. Aborting simulation.")
+                breaking = true
+            else
+                rethrow(e)
+            end    
+        end
     end
-    condition(u,t,integrator) = smoothing
-    cb1 = DiscreteCallback(condition, affect!)
-    # Callback 2: Resetting MWL 
-    function affectMWL!(integrator)
-        N = Int(integrator.p[1])
-        L = integrator.p[2]
-        MWL = integrator.p[5]
-        Xξ = DDI1(integrator.u[1:N],N,L,1)
-        # Reset MWL 
-        integrator.u[N+1:2*N] .-= (sum(Xξ.*integrator[N+1:2*N])/(L) - MWL)
-    end
-    condition_MWL(u,t,integrator) = MWL_reset
-    cb2 = DiscreteCallback(condition_MWL,affectMWL!)
-
-    # Define array of callbacks
-    cb = CallbackSet(cb1,cb2)
-
-    prob = ODEProblem(TimeStep,initial,tf/sqrt(L̃),params)
-    #sol = solve(prob,alg,reltol=1e-8,abstol=1e-8,dtmin=1e-5,callback=cb)
-    sol = solve(prob,alg,reltol=reltol,abstol=1e-8,dt=dt,callback=cb)
-
-    # Running the system until final time is reached. Modify function to take parameters for whether or not mean water level should be computed, and which time-scheme to use.
-    # while t < tf
-    #    prob = ODEProblem(fixedTimeOperations,)
-
-    #     X_timeseries[i+1,:], Y_timeseries[i+1,:], ϕ_timeseries[i+1,:] = RK4i(dt/sqrt(L̃), fixedTimeOperations, N, X_timeseries[i,:], Y_timeseries[i,:], ϕ_timeseries[i,:], L, hs,false)
-
-    #     i += 1
-    #     t += dt
-    # end
-
-    return sol
+    # Reshape into matrix 
+    Xmatrix = permutedims(hcat(Xfull...))
+    Ymatrix = permutedims(hcat(Yfull...))
+    ϕmatrix = permutedims(hcat(ϕfull...))
+    return Xmatrix, Ymatrix, ϕmatrix, t
 end

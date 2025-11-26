@@ -103,7 +103,7 @@ dk  = pi/L;                                                                # Del
 va  = (0:2*N-1)*dal;                                                      # Vector of abscissas in the conformal space.
 vk  = [0:N-1; -N:-1 ]*dk;                                                 # Vector of wavenumbers.
 # Initial guess for the solution:
-Ups = (H/2).*(1 .+cos.(k.*va));                                                 # Airy solution for Upsilon.
+Ups = (H/2).*(1 .+ cos.(k.*va));                                                 # Airy solution for Upsilon.
 sig = 1;                                                                   # Parameter sigma.
 # Commence Petviashvili's iterations.
 err  = Inf;                                                                # Enforce loop entry.
