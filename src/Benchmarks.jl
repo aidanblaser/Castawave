@@ -11,10 +11,10 @@ include(projectdir()*"/src/MainSolver.jl")
 n = 128
 A = 0.3
 Δt = 0.01
-tf = 9.5
+tf = 3
 L = 2π;
 k = 1;
-h = 0;
+h = 0.0;
 
 # Build Stokes Wave initial condition
 X = [(α * L / n) - A*sin(k*α*L/n) - A^3*k^2*sin(k*α*L/n) - A^4*k^3 / 3 * sin(2*k*α*L/n) for α in 1:n]
@@ -45,18 +45,17 @@ A*cos.(θ.(a,t,A,k)) .+ A^4*k^3*cos.(2*θ.(a,t,A,k)) .- 1/24*A^5*k^4*cos.(θ.(a,
 arange = range(0,step=2π/(10*n),length=10*n)
 
 # Run simulation
-sol= runSim(n, X, Y, ϕ, Δt, Float64(tf),L,h)
+Xfull, Yfull, ϕfull, t= @time runSim(n, X, Y, ϕ, Δt, tf,L,h)
 
-anim = @animate for t = 0:Δt:tf
-    xvals = sol(t)[1:n]
-    yvals = sol(t)[n+1:2*n]
-    ϕvals = sol(t)[2*n+1:3*n]
+plot(Xfull[end,:],Yfull[end,:])
 
-    plot(x.(arange,t,A,k),y.(arange,t,A,k),label="Analytic",linewidth=3,legend = :bottomright,
+
+anim = @animate for i ∈ 1:length(t)
+    plot(x.(arange,t[i],A,k),y.(arange,t[i],A,k),label="Analytic",linewidth=3,legend = :bottomright,
     framestyle= :box,
-     dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", t),
+     dpi = 300, xlabel=L"x \,(m)",ylabel=L"z \,(m)", title= @sprintf("Time: %.1f s", t[i]),
      xlims=(0,L),ylims = (-1.9,1.9),aspect_ratio=1)
-    scatter!([xvals],[yvals], label = "Simulation",markerstrokewidth=0, markersize=2)
+    scatter!(Xfull[i,:],Yfull[i,:], label = "Simulation",markerstrokewidth=0, markersize=2)
 end
 gif(anim, projectdir()*"/plots/AnalyticComparison.gif", fps=30)
 

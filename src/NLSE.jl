@@ -58,7 +58,7 @@ function NLSE(dF, F, p,t)
     D2 = p[3]
     D3 = p[4]
     #dF .= -im*ϵ*(1/8 * D2 * F .+ abs.(F).^2 .* F) .- 1/2 * D1*F .+ ϵ^2 *(1/8 * D3 * F .- abs.(F).^2 .* D1*F .+ 1/2 * F .* D1 * abs.(F).^2) 
-    dF .= -im*ϵ*(1/8 * D2 * F .+ abs.(F).^2 .* F) .- 1/2 * D1*F .+ ϵ^2 *(1/8 * D3 * F .- 1/2* F.* (conj.(F).*D1*F .- F .* D1*conj.(F)) )
+    dF .= -im*ϵ*(1/8 * D2 * F .+ 1/2*abs.(F).^2 .* F) .- 1/2 * D1*F .+ 0*ϵ^2 .*(1/2 * F .*(conj.(F).*D1*F .- F .* D1*conj.(F)).-1/8 .* D3*F)
 end
 
 
@@ -70,7 +70,7 @@ h = A[2]-A[1]
 tf = 70.0;
 
 # Initial condition
-F_initial = 0.2*sech.((A.-2)).^2 .* exp.(im.* A./ϵ)
+F_initial = 1*exp.(-(A.-2).^2) .+ 0.0*im
 plot(A,real.(F_initial))
 plot!(A,imag.(F_initial))
 
@@ -80,18 +80,18 @@ prob = ODEProblem(NLSE,F_initial,tf,params);
 sol = solve(prob,Vern7(),reltol=1e-6)
 
 # Animate solution 
-t = 0:0.2:tf
+t = 0:1:tf
 using LaTeXStrings
 using Printf
 gr()
 anim = @animate for i ∈ t
     Fvals = sol(i)
 
-    plot(a,abs.(Fvals), legend = false,
+    plot(A,abs.(Fvals), legend = false,
         framestyle= :box,background_color="black", markerstrokewidth=0, markersize=1,
         dpi = 300, xlabel=L"a \,(m)",ylabel=L"F \,(m)", title= @sprintf("T: %.2f s", i),
-        xlims=(0,maximum(a)),ylims = (-1.5,1.5))
-    plot!(a,real.(Fvals))
+        xlims=(0,maximum(A)),ylims = (-1.5,1.5))
+    plot!(A,real.(Fvals))
     #plot!([maxVec[Int(t÷Δt + 1)],maxVec[Int(t÷Δt + 1)]],[-2,2],linewidth=3)
 end every 1
 gif(anim, projectdir()*"/plots/NLSE.gif", fps=20)
