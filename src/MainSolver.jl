@@ -8,14 +8,17 @@ Note that, during initialization, particle labels are taken as the indices of th
 
 using DrWatson
 @quickactivate "Castawave"
-using LinearAlgebra 
-using JLD2
-using DifferentialEquations
+using LinearAlgebra
 
 include(projectdir()*"/src/Constants.jl")
 include(projectdir()*"/src/HelperFunctions.jl")
 
-function fixedTimeOperations(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float64}, L::Real, h::Real)
+#= TODO 
+- Better implement time stepping so it lands on intervals of dt (even if it takes steps between)
+- Better implement code aborting condition (maybe based on min timestep?)
+=#
+
+function fixedTimeOperations(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, L::Real, h::Real)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
@@ -34,18 +37,11 @@ function fixedTimeOperations(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ:
     =#
 
     Ω = conformalMap(X .+ im*Y)
-    R_ξ = DDI1(X,N,L,1) .+ im*DDI1(Y,N,0,1)
-    R_ξξ = DDI2(X,N,L,1) .+ im*DDI2(Y,N,0,1)
-    Ω_ξ = DDI1(Ω,N,0,0)
-    Ω_ξξ = DDI2(Ω,N,0,0)
+    R_ξ = DDI1(X,N,L) .+ im*DDI1(Y,N,0)
+    Ω_ξ = DDI1(Ω,N,0)
+    Ω_ξξ = DDI2(Ω,N,0)
 
     H = conformalDepth(h)
-    
-
-    # The necessary derivatives are calculated from the 11-point interpolation in the conformal frame, making them implicitly periodic and removing the need to offset the x-domain length.
-    # Ω_ξ = DDI1(Ω, N)
-    # Ω_ξξ = DDI2(Ω, N)
-    # R_ξ = (im .* Ω_ξ) ./ Ω
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
     A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H)
@@ -60,32 +56,8 @@ function fixedTimeOperations(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ:
     return ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
 end
 
-function TimeStep(du,u,p,t)
-    #=
-    Timestepping ODE to be used for DifferentialEquations julia package
 
-    Input:
-    du = (dX,dY,dϕ) - 3N length vector showing the evolution of each point's X,Y, and ϕ values
-    u = (X,Y,ϕ) - 3N length vector showing values of coordinate
-    p = (N, L, h, smoothing) - vector of parameters
-    t = tf - final time to simulate
-    =#
-    
-    N = Int(p[1]) # number of points
-    u1 = u[1:N];
-    u2 = u[N+1:2*N];
-    u3 = u[2*N+1:3*N];
-    L = p[2]
-    h = p[3]
-    smoothing = Bool(p[4])
-    diffu1, diffu2, diffu3 = fixedTimeOperations(N,u1,u2,u3,L,h,smoothing)
-    du[1:N] = diffu1
-    du[N+1:2*N] = diffu2
-    du[2*N+1:3*N] = diffu3
-end
-
-
-function runSim(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float64}, dt::Real, tf::Real,L::Real,h::Real; ϵ = 1e-5,smoothing=true)
+function runSim(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, dt::Real, tf::Real,L::Real,h::Real; ϵ::Real = 1e-5,smoothing::Bool=true)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
@@ -147,9 +119,9 @@ function runSim(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float
         try
             # smooth data if desired (and not for first timestep)
             if smoothing && length(t) > 1
-                Xfull[end] = smooth(N,Xfull[end],2π,1)
-                Yfull[end] = smooth(N,Yfull[end],0,1)
-                ϕfull[end] = smooth(N,ϕfull[end],0,1)
+                Xfull[end] = smooth(Xfull[end],N,2π)
+                Yfull[end] = smooth(Yfull[end],N,0)
+                ϕfull[end] = smooth(ϕfull[end],N,0)
             end
 
             # Determine velocities to timestep particles
@@ -180,6 +152,7 @@ function runSim(N::Int, X::Vector{Float64}, Y::Vector{Float64}, ϕ::Vector{Float
             if length(t) < 5
                 thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
                 fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                # Take smaller timesteps initially
                 Δt = (ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
             else
                 thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))

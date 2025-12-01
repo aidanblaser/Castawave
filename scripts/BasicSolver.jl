@@ -10,22 +10,20 @@ plotlyjs()
 
 include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
-include(projectdir()*"/src/DoldMono.jl")
 
 N = 200
 n = N
 A = 0.45
-Δt = 0.001
+Δt = 0.01
 tf = 1.3
 L = 2π;
 k = 1;
 h = 0.0;
 smoothing = false;
-alg = Vern9()
 
-X = [(α * L / n) - A*sin(k*α*L/n) - 0*A^3*k^2*sin(k*α*L/n) - 0*A^4*k^3 / 3 * sin(2*k*α*L/n) for α in n÷2:n+n÷2-1]
-Y = [(cos(k * α*L / n )) * A + 0*1/6*A^4*k^3*cos(k*α*L/n) .+ 0*(A^2*k / 2).+ 0*A^4*k^3 * 1/2 for α in n÷2:n+n÷2-1]
-ϕ = [-sqrt(9.81/k) * A * sin(k*α*L/n) for α in 1:n]
+X = [(α * L / n) - A*sin(k*α*L/n) for α in 1:n]
+Y = [(cos(k * α*L / n )) * A for α in 1:n]
+ϕ = [sqrt(9.81/k) * A * sin(k*α*L/n) for α in 1:n]
 # Use if you want a generic initial condition
 scatter(X,Y)
 scatter!(X,ϕ)
@@ -49,8 +47,8 @@ MWL = simpsons_rule_periodic(X,Y)/(2π)
 N = 128;
 A = 0.3
 X,Y,ϕ,c = getIC(Inf,A,N÷2)
-tf = 4.0;
-Δt = 1e-4
+tf = 5.0;
+Δt = 1e-2
 L = 2π
 h = 0.0
 tol = 1e-6
@@ -61,14 +59,12 @@ Zshift = ZC.* exp.(im*π/2)
 scatter(real(ZC),imag(ZC))
 
 scatter(X,Y)
-
-Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, Float64(tf),L,h,ϵ = tol,smoothing=true)
-t[end]
-scatter(Xfull[end,:],Yfull[end,:])
-plot(t[6:end-1],diff(t)[6:end],xlabel="t (s)",ylabel="dt (s)")
-
-plot(Xfull[end,:],Yfull[end,:],aspect_ratio=1,legend=false)
-
+scatter!(X,ϕ)
+Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, tf,L,h)
+plotlyjs()
+plot(Xfull[end-5,:],Yfull[end-5,:],aspect_ratio=1,legend=false)
+Xfull
+t
 tdesired = collect(range(0,t[end],length=400))
 indices = Int64.(ones(length(tdesired)))
 for i ∈ 1:length(tdesired)
