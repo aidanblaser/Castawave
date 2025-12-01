@@ -47,7 +47,7 @@ MWL = simpsons_rule_periodic(X,Y)/(2π)
 N = 128;
 A = 0.3
 X,Y,ϕ,c = getIC(Inf,A,N÷2)
-tf = 5.0;
+T = 5.0;
 Δt = 1e-2
 L = 2π
 h = 0.0
@@ -60,7 +60,9 @@ scatter(real(ZC),imag(ZC))
 
 scatter(X,Y)
 scatter!(X,ϕ)
-Xfull, Yfull, ϕfull, t = @time runSim(N, X, Y, ϕ, Δt, tf,L,h)
+
+p = SimulationParameters(L,h,Δt,T)
+Xfull, Yfull, ϕfull, t = @time runSim(X, Y, ϕ,p)
 plotlyjs()
 plot(Xfull[end-5,:],Yfull[end-5,:],aspect_ratio=1,legend=false)
 Xfull

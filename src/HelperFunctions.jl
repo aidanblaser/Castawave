@@ -54,11 +54,11 @@ The following DDI1 and DDI2 functions are used for taking the first and second o
 They do this according to Dold's weighted coefficients method for Lagrangian polynomial interpolation.
 They are implemented in the main function with respect to conformal methods such that no offset or halo boundary is needed to deal with periodic boundary conditions.
 =#
-function DDI1(Ω::AbstractVector{<:Number}, N::Int, offset)
+function DDI1(Ω::AbstractVector{<:Number}, offset)
     #=
     DDI1 is a function that uses an 11-point finite difference stencil to estimate the first derivative of Ω with respect to particle label ξ.
     =#
-
+    N = length(Ω)
     Ω_ξ = similar(Ω)
 
     for i in 1:N
@@ -88,11 +88,11 @@ function DDI1(Ω::AbstractVector{<:Number}, N::Int, offset)
     # return Ω_ξ
 end
 
-function DDI2(Ω::AbstractVector{<:Number}, N::Int,offset)
+function DDI2(Ω::AbstractVector{<:Number},offset)
     #=
     DDI2 is a function that uses an 11-point finite difference stencil to estimate the first derivative of Ω with respect to particle label ξ
     =#
-
+    N = length(Ω)
     Ω_ξξ = similar(Ω)
 
     for i in 1:N
@@ -112,7 +112,7 @@ function DDI2(Ω::AbstractVector{<:Number}, N::Int,offset)
     return Ω_ξξ
 end
 
-function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, N::Int, H::Real=0.0)
+function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, H::Real=0.0)
     #=
     The ABMatrices function sets up the A and B matrices from Dold eq. 4.13, using a necesary conditional double for loop.
     While it is a computationally expensive function, it is separated from the matrix inversion step because it is only needed once per timestep.
@@ -128,7 +128,7 @@ function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number
     B - Matrix
     ℵ - matrix of π I - B for use in NormalInversion
     =#
-
+    N = length(Ω)
     if iszero(H)
         # create matrix of differences
         ΔΩ = Ω .- permutedims(Ω)
@@ -158,7 +158,7 @@ function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number
     return A,B,ℵ
 end
 
-function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ, N::Int)
+function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ)
     #= 
     NormalInversion is a function that implements the matrix inversion method from Dold eq 4.13 in order to compute the normal derivative of the scalar velocity potential. The method is based on using a conformal mapping and the Cauchy integral theorem for solving the Laplacian equation. The subtlety lies in the issue that, for solely surface particles at b=0, there is no Lagrangian normal derivative as there are no particles above or below. For efficiency, due to the need of the tangential derivative, it is first computed and returned along with the normal derivative here.
         
@@ -168,15 +168,14 @@ function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, 
     ϕ - real vector of scalar velocity potential
     A - matrix built from ABMatrices
     ℵ - 
-    N - number of particles
 
     Output:
     ϕ_ξ - real vector of tangential partial derivative of with respect to particle label ξ
     ϕ_ν - real vector of normal partial derivative scaled by
     =#
 
-    ϕ_ξ = DDI1(ϕ,N,0)
-    ϕ_ξξ = DDI2(ϕ,N,0)
+    ϕ_ξ = DDI1(ϕ,0)
+    ϕ_ξξ = DDI2(ϕ,0)
 
     # Important: here the * is not element wise to get the sum A*ϕ_ξ for each one-element row entry of the resulting column vector, while the difference is element wise to subtract ϕ_ξξ[i] from each of the summed entries.
     b = ((A * ϕ_ξ) .- ϕ_ξξ)
@@ -187,7 +186,7 @@ function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, 
     return ϕ_ξ, ϕ_ν
 end
 
-function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
+function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, p::SimulationParameters)
     #=
     PhiTimeDer is a function that calculates the Lagrangian and Eulerian time derivative of ϕ from the dynamic Bernoulli condition. 
         
@@ -204,13 +203,13 @@ function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, L)
     ϕ_D - Material Lagrangian time derivative of the velocity potential
     ϕ_t - Partial Eulerian time derivative of the velocity potential
     =#
-    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY .* Y
-    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- GRAVITY .* Y
+    ϕ_D = 0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- p.g .* Y
+    ϕ_t = -0.5 .* (ϕ_ξ.^2 .+ ϕ_ν.^2) ./ abs.(R_ξ).^2 .- p.g .* Y
 
     return ϕ_D, ϕ_t
 end
 
-function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<:Real}, ϕ_y::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ, N::Int,Y::AbstractVector{<:Real})
+function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<:Real}, ϕ_y::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ,Y::AbstractVector{<:Real},p::SimulationParameters)
     #=
     TimeDerivatives is a function that computes up to the third Lagrangian time derivative
     of both the positions (x,y) and velocity potential ϕ
@@ -218,20 +217,20 @@ function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<
 
     # First derivatives of x,y just found from ϕ_x, ϕ_y which we already have
     # Evolution of ϕ comes from Bernoulli's equation at the free surface    
-    DϕDt = 0.5 .* (ϕ_x.^2 .+ ϕ_y.^2) .- GRAVITY.*Y
+    DϕDt = 0.5 .* (ϕ_x.^2 .+ ϕ_y.^2) .- p.g.*Y
 
     # Get Eulerian time derivatives of velocities
-    ϕξt, ϕνt = NormalInversion(-GRAVITY.*Y .- 0.5 .*(ϕ_x.^2 .+ ϕ_y.^2), A, ℵ, N)
+    ϕξt, ϕνt = NormalInversion(-p.g.*Y .- 0.5 .*(ϕ_x.^2 .+ ϕ_y.^2), A, ℵ)
     ut, vt = RealPhi(R_ξ,ϕξt,ϕνt)
 
     # Next, get gradient of velocity fields
     xξ = real(R_ξ)
     yξ = imag(R_ξ)
     spacing = xξ.^2 .+ yξ.^2
-    uξ = DDI1(ϕ_x,N,0)
-    vξ = DDI1(ϕ_y,N,0)
-    utξ = DDI1(ut,N,0)
-    vtξ = DDI1(vt,N,0)
+    uξ = DDI1(ϕ_x,0)
+    vξ = DDI1(ϕ_y,0)
+    utξ = DDI1(ut,0)
+    vtξ = DDI1(vt,0)
     ux = (uξ.*xξ .- vξ.*yξ)./spacing
     vy = -ux
     vx = (uξ.*yξ .+ vξ.*xξ)./spacing
@@ -240,8 +239,8 @@ function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<
     vty = -utx
     vtx = (utξ.*yξ .+ vtξ.*xξ)./spacing
     uty = vtx
-    uxξ = DDI1(ux,N,0)
-    vxξ = DDI1(vx,N,0)
+    uxξ = DDI1(ux,0)
+    vxξ = DDI1(vx,0)
     uxx = (uxξ.*xξ .- vxξ.*yξ)./spacing
     vxx = (uxξ.*yξ .+ vxξ.*xξ)./spacing
     
@@ -249,16 +248,16 @@ function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<
     # Next, use this to get Lagrangian time derivatives
     DuDt = ut .+ ϕ_x .* ux .+ ϕ_y .* uy
     DvDt = vt .+ ϕ_x .* vx .+ ϕ_y .* vy
-    D2ϕDt2 = ϕ_x .* DuDt .+ ϕ_y .* DvDt .- GRAVITY .* ϕ_y
+    D2ϕDt2 = ϕ_x .* DuDt .+ ϕ_y .* DvDt .- p.g .* ϕ_y
 
     # Now do third order, need to first get utt Eulerian
-    ϕttξ, ϕttν = NormalInversion(-ϕ_x .* ut .- ϕ_y .* vt,A, ℵ, N)
+    ϕttξ, ϕttν = NormalInversion(-ϕ_x .* ut .- ϕ_y .* vt,A, ℵ)
     utt,vtt = RealPhi(R_ξ,ϕttξ,ϕttν)
 
     # Compute third order time derivatives
     D2uDt2 = utt .+ 2 .*(ϕ_x .* utx .+ ϕ_y.*uty) .+ ut.*ux .+ vt.*vx .+ (ux.^2 .+ vx.^2).*ϕ_x .+ (ϕ_x.^2 .- ϕ_y.^2).* uxx .+ 2 .* ϕ_x .* ϕ_y .* vxx
     D2vDt2 = vtt .+ 2 .*(ϕ_x .* vtx .+ ϕ_y.*vty) .+ ut.*vx .- vt.*ux .+ (ux.^2 .+ vx.^2).*ϕ_y .+ (ϕ_x.^2 .- ϕ_y.^2).* vxx .- 2 .* ϕ_x .* ϕ_y .* uxx
-    D3ϕDt3 = DuDt.^2 .+ DvDt.^2 .+ ϕ_x .* D2uDt2 .+ ϕ_y .* D2vDt2 .- GRAVITY.*DvDt
+    D3ϕDt3 = DuDt.^2 .+ DvDt.^2 .+ ϕ_x .* D2uDt2 .+ ϕ_y .* D2vDt2 .- p.g.*DvDt
 
     return DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
 end
@@ -404,8 +403,8 @@ function mwl(X_ξ, Y)
     return 1 / (2 * pi) * sum(Y .* X_ξ)
 end
 
-function smooth(Ω::AbstractVector{<:Number},N::Int,offset)
-
+function smooth(Ω::AbstractVector{<:Number},offset)
+    N = length(Ω)
     Ω_sm = similar(Ω)
 
     for i in 1:N
@@ -469,8 +468,8 @@ function computeEnergy(sol,n,L=2π)
         ẋ = sol(t,Val{1})[1:n]
         ẏ = sol(t,Val{1})[n+1:2*n]
         ϕ = sol(t)[2*n+1:end]
-        xξ = DDI1(x,n,L)
-        yξ = DDI1(y,n,0)
+        xξ = DDI1(x,L)
+        yξ = DDI1(y,0)
         #R = x .+ im.*y
         #Ω = conformalMap(R)
         #Ω_ξ = DDI1(Ω, n,0)
@@ -505,8 +504,8 @@ function computeEnergyDold(xvals,yvals,ϕvals,time,N,c,L=2π)
         x = xvals[t[1],:]
         y = yvals[t[1],:]
         ϕ = ϕvals[t[1],:]
-        xξ = DDI1(x,N,L)
-        yξ = DDI1(y,N,0)
+        xξ = DDI1(x,L)
+        yξ = DDI1(y,0)
         (ẋ, ẏ, _, _, _, _, _, _, _) = fixedTimeOperations(N, x, y, ϕ, L, 0.0)
         
         MWL = sum(y.*xξ)/ N

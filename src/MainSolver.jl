@@ -18,62 +18,109 @@ include(projectdir()*"/src/HelperFunctions.jl")
 - Better implement code aborting condition (maybe based on min timestep?)
 =#
 
-function fixedTimeOperations(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, L::Real, h::Real)
+# Create a structure for the parameters so it knows it's invariant
+struct SimulationParameters
+
+    # Physical parameters
+    L::Float64 # Length of domain in meters (spatial periodicity)
+    h::Float64 # Depth of fluid at rest in meters
+    dt::Float64 # Maximum timestep in seconds 
+    T::Float64 # Desired duration of simulation in seconds (may abort early if wave breaks)
+
+    # Parameters re-scaled to have L=2π
+    lengthScale::Float64
+    timeScale::Float64
+    h̃::Float64 
+    dt̃::Float64 
+    T̃::Float64
+
+    # Parameters with default values 
+    errortol::Float64
+    smoothing::Bool 
+    g::Float64
+
+    function SimulationParameters(L,h,dt,T;errortol=1e-5,smoothing=true,g=9.81)
+        # Convert variables to explicit types 
+        L = Float64(L)
+        h = Float64(h)
+        dt = Float64(dt)
+        T = Float64(T)
+        errortol = Float64(errortol)
+        smoothing = Bool(smoothing)
+        g = Float64(g)
+
+        # Parameters scaled to have 2π periodicity
+        lengthScale = Float64(L/2π)
+        timeScale = sqrt(lengthScale)
+        h̃ = h/lengthScale
+        dt̃ = dt/timeScale
+        T̃ = T/timeScale
+        return new(L,h,dt,T,lengthScale,timeScale,h̃,dt̃,T̃,errortol,smoothing,g)
+    end 
+end
+
+
+function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, p::SimulationParameters)
     #=
     The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
     
     It has many calls to the underlying helper functions file for clarity and compartementalization of the code.
     
     Input:
-    N - number of Lagrangian particles and length of position and velocity vectors
-    X - real vector of particle x-positions on the surface
-    Y - real vector of particle y-positions on the surface
+    X - real vector of initial particle x-positions on the surface
+    Y - real vector of initial particle y-positions on the surface
     ϕ - real vector of scalar velocity potential for particles on the surface
+    p - SimulationParameters structure
 
     Output:
     ϕ_x - real vector of U velocity for particles on the surface
     ϕ_y - real vector of V velocity for particles on the surface
     ϕ_D - real vector of the material derivative of ϕ from the dynamic boundary condition
+    (higher derivatives of X,Y,ϕ are outputted as well)
     =#
+    N = length(X)
+    h̃ = p.h̃
 
     Ω = conformalMap(X .+ im*Y)
-    R_ξ = DDI1(X,N,L) .+ im*DDI1(Y,N,0)
-    Ω_ξ = DDI1(Ω,N,0)
-    Ω_ξξ = DDI2(Ω,N,0)
+    # Requires to be non-dimensionsionalized
+    R_ξ = DDI1(X,2π) .+ im*DDI1(Y,0)
+    Ω_ξ = DDI1(Ω,0)
+    Ω_ξξ = DDI2(Ω,0)
 
     H = conformalDepth(h)
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
-    A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, N, H)
-    ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ, N)
+    A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, H)
+    ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
     
     # Use all this to compute up to third order time derivatives
-    DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = TimeDerivatives(R_ξ, ϕ_x, ϕ_y, A, ℵ, N,Y)
+    DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = TimeDerivatives(R_ξ, ϕ_x, ϕ_y, A, ℵ,Y,p)
 
     return ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
 end
 
 
-function runSim(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, dt::Real, tf::Real,L::Real,h::Real; ϵ::Real = 1e-5,smoothing::Bool=true)
+function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, p::SimulationParameters)
     #=
     The run function is the master function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
     (which can also be exported through JDL2 for larger files).
     
     Input:
-    N  - number of Lagrangian particles and length of position and velocity vectors
     X  - real vector (length N) of initial particle x-positions on the surface
     Y  - real vector (length N) of initial particle y-positions on the surface
     ϕ  - real vector (length N) of initial scalar velocity potential for particles on the surface
-    dt - Time step (scalar, seconds)
-    tf - Final time of simulation (scalar, seconds)
-    L  - Periodicity of system in physical length units (meters)
-    h  - Depth of domain (scalar, meters). Defaults to 0 which means infinite depth.
-    smooth - (true/false) Setting smoothing to true makes all values (X,Y,ϕ) become smoothed
-              at each timestep. The smoothing is a 15 point stencil as defined in Helperfunctions.jl (function name smooth())
+    p  - Simulation parameters structure. Includes the fields:
+        L - periodicity of domain (meters)
+        h - depth of fluid at rest (meters)
+        dt - desired timestep (seconds)
+        tf - duration of simulation (seconds, will abort early if wave breaks)
+        errortol - error tolerance, defaults to 1e-5. Lower values mean greater accuracy. Reduces timestep based on nonlinearity
+        smoothing - Default to true. At each timestep, applies an 11-pt smoothing filter to remove "sawtooth" modes which tend to appear in these codes 
+        g - value of gravitational acceleration (defaults to 9.81)
 
     Output:
     X_timeseries - real array of x-positions for particles on the surface at each time step
@@ -81,23 +128,21 @@ function runSim(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ
     ϕ_timeseries - real vector of ϕ values for particles on the surface at each time step
     time         - real array of timesteps from 0 to tf with step size dt
     =#
+    N = length(X);
 
-    # Make domain 2π periodic
-    L̃ = L / 2π
-    hs = h / L̃
-
-
-    XS = X / L̃
-    YS = Y / L̃
-    ϕS = ϕ / (L̃)^(3/2)
+    # For simplicity, non-dimensionalize the data 
+    lengthScale = p.lengthScale
+    timeScale = p.timeScale
+    XS = X / lengthScale
+    YS = Y / lengthScale 
+    ϕS = ϕ / lengthScale / timeScale
+    hS = h / lengthScale
 
     # Add breaking parameter 
     breaking = false
 
-    
     #MWL
     #MWL =  sum(DDI1(X,N,L,1).*Y)/L
-
 
     # Initialize time vector
     t = [0.0]
@@ -115,20 +160,17 @@ function runSim(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ
     dY = Array{Float64}(undef,N,5)
     dϕ = Array{Float64}(undef,N,5)
 
-    while t[end] <= tf && !breaking
+    while t[end] <= p.T̃ && !breaking
         try
             # smooth data if desired (and not for first timestep)
-            if smoothing && length(t) > 1
-                Xfull[end] = smooth(Xfull[end],N,2π)
-                Yfull[end] = smooth(Yfull[end],N,0)
-                ϕfull[end] = smooth(ϕfull[end],N,0)
+            if p.smoothing && length(t) > 1
+                Xfull[end] = smooth(Xfull[end],2π)
+                Yfull[end] = smooth(Yfull[end],0)
+                ϕfull[end] = smooth(ϕfull[end],0)
             end
 
             # Determine velocities to timestep particles
-            ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(N, Xfull[end], Yfull[end], ϕfull[end], 2π, h)
-
-
-
+            ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(Xfull[end], Yfull[end], ϕfull[end],p)
 
             # For each point
             Xnext = similar(XS)
@@ -153,11 +195,11 @@ function runSim(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ
                 thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
                 fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
                 # Take smaller timesteps initially
-                Δt = (ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
+                Δt = (p.errortol*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
             else
                 thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
                 fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
-                Δt = min((ϵ*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),dt)
+                Δt = min((p.errortol*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),p.dt̃)
                 # Minimum timestep 1e-5
                 Δt = max(Δt,1e-5)
             end
@@ -190,5 +232,8 @@ function runSim(N::Int, X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ
     Xmatrix = permutedims(hcat(Xfull...))
     Ymatrix = permutedims(hcat(Yfull...))
     ϕmatrix = permutedims(hcat(ϕfull...))
-    return Xmatrix, Ymatrix, ϕmatrix, t
+
+    # Redimensionalize variables 
+
+    return Xmatrix*lengthScale, Ymatrix*lengthScale, ϕmatrix*lengthScale*timeScale, t*timeScale
 end
