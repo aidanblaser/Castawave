@@ -291,7 +291,7 @@ function RK4i(dt, f::Function, N, X, Y, ϕ, L, H,smoothing)
     return Xn, Yn, ϕn
 end
 
-function LagrangeInterpolant(ϕ::AbstractVector{<:Real},tReal::AbstractVector{<:Real},l)
+function LagrangeInterpolant(ϕ::AbstractVector{<:Real},tReal::AbstractVector{<:Real},l::Int)
     #=
     LagrangeInterpolant is a function which, given l previous points in time,
     forms a Lagrange interpolating polynomial of order l. In practice, this is
@@ -308,46 +308,75 @@ function LagrangeInterpolant(ϕ::AbstractVector{<:Real},tReal::AbstractVector{<:
     t = tReal .- tReal[end]
     # Create empty vector of derivative estimates (up to 5th)
     dϕ = zeros(5)
-    if l == 0 # i.e. first timestep 
-        nothing # if only one point, can't estimate further
-    end
+    n = l + 1
 
-    if l == 1  #i.e. two point linear fit 
-        p1 = LagrangeInterpolation(t,ϕ)
-        dϕ[1] = derivative(p1,1)(0)
+    # First, compute weights of Lagrange interpolating polynomial 
+    w = ones(n)
+    for i ∈ 1:n 
+        for j ∈ 1:n 
+            i == j && continue
+            w[i] /= (t[i]-t[j])
+        end 
     end 
 
-    if l == 2  #i.e. three point quadratic fit 
-        p2 = LagrangeInterpolation(t,ϕ)
-        dϕ[1] = derivative(p2,1)(0)
-        dϕ[2] = derivative(p2,2)(0)
-    end
+    # Compute higher order derivatives given weights 
+    for i ∈ 1:n 
+        δ = -t[i]
+        dϕ[1] += ϕ[i] * w[i]
+        pow = 1.0 
+        for m ∈ 2:n 
+            pow *= δ
+            dϕ[m] += ϕ[i] * w[i] * pow 
+        end 
+    end 
 
-    if l == 3 #i.e. four point cubic fit 
-        p3 = LagrangeInterpolation(t,ϕ)
-        dϕ[1] = derivative(p3,1)(0)
-        dϕ[2] = derivative(p3,2)(0)
-        dϕ[3] = derivative(p3,3)(0)
-    end
-
-    if l == 4 #i.e. five point quartic fit 
-        p4 = LagrangeInterpolation(t,ϕ)
-        dϕ[1] = derivative(p4,1)(0)
-        dϕ[2] = derivative(p4,2)(0)
-        dϕ[3] = derivative(p4,3)(0)
-        dϕ[4] = derivative(p4,4)(0)
-    end
-
-    if l == 5 #i.e. six point quintic fit 
-        p5 = LagrangeInterpolation(t,ϕ)
-        dϕ[1] = derivative(p5,1)(0)
-        dϕ[2] = derivative(p5,2)(0)
-        dϕ[3] = derivative(p5,3)(0)
-        dϕ[4] = derivative(p5,4)(0)
-        dϕ[5] = derivative(p5,5)(0)
-    end
+    for m ∈ 1:n 
+        dϕ[m] *= factorial(m)
+    end 
 
     return dϕ
+
+
+    # if l == 0 # i.e. first timestep 
+    #     nothing # if only one point, can't estimate further
+    # end
+
+    # if l == 1  #i.e. two point linear fit 
+    #     p1 = LagrangeInterpolation(t,ϕ)
+    #     dϕ[1] = derivative(p1,1)(0)
+    # end 
+
+    # if l == 2  #i.e. three point quadratic fit 
+    #     p2 = LagrangeInterpolation(t,ϕ)
+    #     dϕ[1] = derivative(p2,1)(0)
+    #     dϕ[2] = derivative(p2,2)(0)
+    # end
+
+    # if l == 3 #i.e. four point cubic fit 
+    #     p3 = LagrangeInterpolation(t,ϕ)
+    #     dϕ[1] = derivative(p3,1)(0)
+    #     dϕ[2] = derivative(p3,2)(0)
+    #     dϕ[3] = derivative(p3,3)(0)
+    # end
+
+    # if l == 4 #i.e. five point quartic fit 
+    #     p4 = LagrangeInterpolation(t,ϕ)
+    #     dϕ[1] = derivative(p4,1)(0)
+    #     dϕ[2] = derivative(p4,2)(0)
+    #     dϕ[3] = derivative(p4,3)(0)
+    #     dϕ[4] = derivative(p4,4)(0)
+    # end
+
+    # if l == 5 #i.e. six point quintic fit 
+    #     p5 = LagrangeInterpolation(t,ϕ)
+    #     dϕ[1] = derivative(p5,1)(0)
+    #     dϕ[2] = derivative(p5,2)(0)
+    #     dϕ[3] = derivative(p5,3)(0)
+    #     dϕ[4] = derivative(p5,4)(0)
+    #     dϕ[5] = derivative(p5,5)(0)
+    # end
+
+    # return dϕ
 end
 
 function LagrangeInterpolation(t,ϕ)

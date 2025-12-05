@@ -11,19 +11,40 @@ plotlyjs()
 include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
 
-N = 200
+N = 256
 n = N
 A = 0.45
 Δt = 0.01
-tf = 1.3
+T = 3
 L = 2π;
 k = 1;
 h = 0.0;
 smoothing = false;
-
+p = SimulationParameters(L,h,Δt,T,smoothing=true)
 X = [(α * L / n) - A*sin(k*α*L/n) for α in 1:n]
 Y = [(cos(k * α*L / n )) * A for α in 1:n]
 ϕ = [sqrt(9.81/k) * A * sin(k*α*L/n) for α in 1:n]
+
+offset = 100
+κ = (DDI2(Yfull[end-offset,:],0).*DDI1(Xfull[end-offset,:],2π) .- DDI2(Xfull[end-offset,:],2π).*DDI1(Yfull[end-offset,:],0))./(DDI1(Xfull[end-offset,:],2π).^2 .+ DDI1(Yfull[end-offset,:],2π).^2).^(3/2)
+plot(κ)
+
+Xfull, Yfull, ϕfull, t = @time runSim(X, Y, ϕ,p)
+xD,yD,ϕD,tD,uD,vD,KED,PED = @time DoldSim(X, Y, ϕ,T,L)
+plotlyjs()
+fig = plot(Xfull[end-offset,:],Yfull[end-offset,:],dpi=300,xlims=(4,6),ylims=(0,0.6),xlabel="x (m)",ylabel="y (m)",label="Castawave",title = "A = 0.45 m")
+plot!(xD[end-1,:],yD[end-1,:],label="Dold")
+
+t[end-100]
+tD[end-2]
+
+
+plot(xD[1,:],yD[1,:])
+plot!(Xfull[1,:],Yfull[1,:])
+yD[1,:] .- Yfull[1,:]
+#savefig(fig,projectdir()*"/plots/breaking_comparison")
+t
+Xfull
 # Use if you want a generic initial condition
 scatter(X,Y)
 scatter!(X,ϕ)
@@ -44,8 +65,8 @@ scatter(X,Y)
 MWL = sum(Y)/n
 MWL = simpsons_rule_periodic(X,Y)/(2π)
 
-N = 128;
-A = 0.3
+N = 1024;
+A = 0.4
 X,Y,ϕ,c = getIC(Inf,A,N÷2)
 T = 5.0;
 Δt = 1e-2
@@ -62,10 +83,15 @@ scatter(X,Y)
 scatter!(X,ϕ)
 
 p = SimulationParameters(L,h,Δt,T)
-Xfull, Yfull, ϕfull, t = @time runSim(X, Y, ϕ,p)
+
+using StatProfilerHTML
+StatProfilerHTML.@profilehtml runSim(X, Y, ϕ,p)
+
 plotlyjs()
-plot(Xfull[end-5,:],Yfull[end-5,:],aspect_ratio=1,legend=false)
-Xfull
+gr()
+plt = plot(Xfull[end,:],Yfull[end,:],legend=false,ylims=(-1,1),xlabel="x (m)",ylabel="y (m)",dpi=300,title="A = 0.45 m Breaker")
+#savefig(plt,projectdir()*"/plots/Castawavebreaker")
+
 t
 tdesired = collect(range(0,t[end],length=400))
 indices = Int64.(ones(length(tdesired)))

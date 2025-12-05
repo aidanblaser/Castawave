@@ -147,77 +147,111 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     # Initialize time vector
     t = [0.0]
 
+    # Shift Y so that mean water level is 0 
+    MWL = sum(YS .* DDI1(XS,2π))/N 
+     
+
     # Create and initialize the timeseries fields. 
     Xfull = Vector{Vector{Float64}}()
     Yfull = Vector{Vector{Float64}}()
     ϕfull = Vector{Vector{Float64}}()
     push!(Xfull,XS)
-    push!(Yfull,YS)
+    push!(Yfull,YS .- MWL)
     push!(ϕfull,ϕS)
 
     # Preallocate derivative matrices
-    dX = Array{Float64}(undef,N,5)
-    dY = Array{Float64}(undef,N,5)
-    dϕ = Array{Float64}(undef,N,5)
+    #dX = Array{Float64}(undef,N,5)
+    #dY = Array{Float64}(undef,N,5)
+    #dϕ = Array{Float64}(undef,N,5)
+
+    accelerations = zeros(N);
 
     while t[end] <= p.T̃ && !breaking
         try
             # smooth data if desired (and not for first timestep)
             if p.smoothing && length(t) > 1
-                Xfull[end] = smooth(Xfull[end],2π)
-                Yfull[end] = smooth(Yfull[end],0)
-                ϕfull[end] = smooth(ϕfull[end],0)
+                Xsmooth = smooth(Xfull[end],2π)
+                Ysmooth = smooth(Yfull[end],0)
+                ϕsmooth = smooth(ϕfull[end],0)
+
+                # Do not smooth for particles in jet (near free fall) (doesn't work perfectly well)
+                freefall_indices = findall(x -> 0.7*p.g <= x <= 1.2*p.g, accelerations)
+                not_freefall_indices = setdiff(collect(1:N),freefall_indices)
+                not_freefall_indices = collect(1:N)
+                Xfull[end][not_freefall_indices] = Xsmooth[not_freefall_indices]
+                Yfull[end][not_freefall_indices] = Ysmooth[not_freefall_indices]
+                ϕfull[end][not_freefall_indices] = ϕsmooth[not_freefall_indices]
             end
 
             # Determine velocities to timestep particles
             ϕ_x, ϕ_y, DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3 = fixedTimeOperations(Xfull[end], Yfull[end], ϕfull[end],p)
 
+            accelerations = sqrt.(DuDt.^2 .+ DvDt.^2)
+
             # For each point
             Xnext = similar(XS)
             Ynext = similar(YS)
             ϕnext = similar(ϕS)
-            for i ∈ 1:N
-                # From third order derivatives, extrapolate higher order using Lagrange polynomials
-                # Handle first few timesteps separately
-                if length(t) < 5
-                    dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in 1:length(t)],t,length(t)-1)
-                    dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in 1:length(t)],t,length(t)-1)
-                    dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in 1:length(t)],t,length(t)-1)
-                else
-                    dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
-                    dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
-                    dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],5)
-                end
-            end
+            # for i ∈ 1:N
+            #     # From third order derivatives, extrapolate higher order using Lagrange polynomials
+            #     # Handle first few timesteps separately
+            #     if length(t) < 5
+            #         dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in 1:length(t)],t,length(t)-1)
+            #         dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in 1:length(t)],t,length(t)-1)
+            #         dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in 1:length(t)],t,length(t)-1)
+            #     else
+            #         dX[i,:] = LagrangeInterpolant([Xfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],4)
+            #         dY[i,:] = LagrangeInterpolant([Yfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],4)
+            #         dϕ[i,:] = LagrangeInterpolant([ϕfull[k][i] for k in length(t)-4:length(t)],t[end-4:end],4)
+            #     end
+            # end
 
-            # Determing Timestep
-            if length(t) < 5
+            # Determing Adaptive Timestep
+            if (length(t) < 5) && false
                 thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
-                fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                #fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                fourthOrderMax = 0;
                 # Take smaller timesteps initially
                 Δt = (p.errortol*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3) / 10
             else
                 thirdOrderMax = max(maximum(abs.(D2uDt2)),maximum(abs.(D2vDt2)),maximum(abs.(D3ϕDt3)))
-                fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                #fourthOrderMax = max(maximum(abs.(dX[:,1])),maximum(abs.(dY[:,1])),maximum(abs.(dϕ[:,1])))
+                fourthOrderMax = 0
                 Δt = min((p.errortol*factorial(3)/max(thirdOrderMax,fourthOrderMax))^(1/3),p.dt̃)
                 # Minimum timestep 1e-5
                 Δt = max(Δt,1e-5)
             end
 
-            for i ∈ 1:N
+            # for i ∈ 1:N
 
-                # Use all these derivatives to get next timestep
-                Xnext[i] = Xfull[end][i] +Δt * (ϕ_x[i]) +Δt^2/factorial(2)*DuDt[i] + Δt^3/factorial(3)*D2uDt2[i] +
-                sum([Δt^n/factorial(n)*dX[n-3] for n=4:8])
-                Ynext[i] = Yfull[end][i] +Δt * (ϕ_y[i]) + Δt^2/factorial(2)*DvDt[i] +Δt^3/factorial(3)*D2vDt2[i] +
-                sum([Δt^n/factorial(n)*dY[n-3] for n=4:8])
-                ϕnext[i] = ϕfull[end][i] +Δt * (DϕDt[i]) +Δt^2/factorial(2)*D2ϕDt2[i] +Δt^3/factorial(3)*D3ϕDt3[i]+
-                sum([Δt^n/factorial(n)*dϕ[n-3] for n=4:8])
-            end
+            #     # Use all these derivatives to get next timestep
+            #     Xnext[i] = Xfull[end][i] +Δt * (ϕ_x[i]) +Δt^2/factorial(2)*DuDt[i] + Δt^3/factorial(3)*D2uDt2[i] 
+            #     #+ sum([Δt^n/factorial(n)*dX[n-3] for n=4:8])
+            #     Ynext[i] = Yfull[end][i] +Δt * (ϕ_y[i]) + Δt^2/factorial(2)*DvDt[i] +Δt^3/factorial(3)*D2vDt2[i] 
+            #     #+ sum([Δt^n/factorial(n)*dY[n-3] for n=4:8])
+            #     ϕnext[i] = ϕfull[end][i] +Δt * (DϕDt[i]) +Δt^2/factorial(2)*D2ϕDt2[i] +Δt^3/factorial(3)*D3ϕDt3[i] 
+            #     #+ sum([Δt^n/factorial(n)*dϕ[n-3] for n=4:8])
+            # end
+            
+            # Use derivatives up to third order to make a predictor step 
+            Xnext = Xfull[end] .+ ϕ_x * Δt .+ Δt^2/2*DuDt .+ Δt^3/6*D2uDt2 
+            Ynext = Yfull[end] .+Δt * (ϕ_y) .+ Δt^2/2*DvDt .+Δt^3/6*D2vDt2
+            ϕnext = ϕfull[end] .+Δt * (DϕDt) .+Δt^2/2*D2ϕDt2 .+Δt^3/6*D3ϕDt3 
+
+            # Estimate derivatives at the predicted surface
+            ϕ_xp, ϕ_yp, DϕDtp, DuDtp, DvDtp, D2ϕDt2p, D2uDt2p, D2vDt2p, D3ϕDt3p = fixedTimeOperations(Xnext, Ynext, ϕnext,p)
+
+            # Use predictor-corrector to average derivatives at predicted surface and current surface (like trapezoidal rule)
+            Xcorr = Xfull[end] .+ Δt/2 *(ϕ_x .+ ϕ_xp) .+ Δt^2 / 12 *(DuDt .- DuDtp) .+ Δt^3 /24 * (D2uDt2 .+ D2uDt2p)
+            Ycorr = Yfull[end] .+ Δt/2 *(ϕ_y .+ ϕ_yp) .+ Δt^2 / 12 *(DvDt .- DvDtp) .+ Δt^3 /24 * (D2vDt2 .+ D2vDt2p)
+            ϕcorr = ϕfull[end] .+ Δt/2 *(DϕDt .+ DϕDtp) .+ Δt^2 / 12 *(D2ϕDt2 .- D2ϕDt2p) .+ Δt^3 /24 * (D3ϕDt3 .+ D3ϕDt3p)
+
+
+
             # Append these values to the result
-            push!(Xfull,Xnext)
-            push!(Yfull,Ynext)
-            push!(ϕfull,ϕnext)
+            push!(Xfull,Xcorr)
+            push!(Yfull,Ycorr)
+            push!(ϕfull,ϕcorr)
             push!(t,t[end] + Δt)
         catch e
             if e isa ArgumentError 
@@ -235,5 +269,5 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
 
     # Redimensionalize variables 
 
-    return Xmatrix*lengthScale, Ymatrix*lengthScale, ϕmatrix*lengthScale*timeScale, t*timeScale
+    return Xmatrix*lengthScale, (Ymatrix.+MWL)*lengthScale, ϕmatrix*lengthScale*timeScale, t*timeScale
 end
