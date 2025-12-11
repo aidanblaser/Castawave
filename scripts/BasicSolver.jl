@@ -10,12 +10,13 @@ plotlyjs()
 
 include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
+include(projectdir()*"/src/DoldFcns.jl")
 
-N = 256
+N = 128
 n = N
 A = 0.45
-Δt = 0.01
-T = 3
+Δt = 0.1
+T = 0.5
 L = 2π;
 k = 1;
 h = 0.0;
@@ -25,7 +26,7 @@ X = [(α * L / n) - A*sin(k*α*L/n) for α in 1:n]
 Y = [(cos(k * α*L / n )) * A for α in 1:n]
 ϕ = [sqrt(9.81/k) * A * sin(k*α*L/n) for α in 1:n]
 
-offset = 100
+offset = 0
 κ = (DDI2(Yfull[end-offset,:],0).*DDI1(Xfull[end-offset,:],2π) .- DDI2(Xfull[end-offset,:],2π).*DDI1(Yfull[end-offset,:],0))./(DDI1(Xfull[end-offset,:],2π).^2 .+ DDI1(Yfull[end-offset,:],2π).^2).^(3/2)
 plot(κ)
 
@@ -33,10 +34,33 @@ Xfull, Yfull, ϕfull, t = @time runSim(X, Y, ϕ,p)
 xD,yD,ϕD,tD,uD,vD,KED,PED = @time DoldSim(X, Y, ϕ,T,L)
 plotlyjs()
 fig = plot(Xfull[end-offset,:],Yfull[end-offset,:],dpi=300,xlims=(4,6),ylims=(0,0.6),xlabel="x (m)",ylabel="y (m)",label="Castawave",title = "A = 0.45 m")
-plot!(xD[end-1,:],yD[end-1,:],label="Dold")
+plot!(xD[end,:],yD[end,:],label="Dold")
+Xfull[end-20,:]
 
-t[end-100]
+
+X, Y, ϕ, c = getIC(Inf,0.3,128÷2)
+
+
+
+plot(Xfull[1,:],Yfull[1,:])
+plot!(Xfull[end-1,:],Yfull[end-1,:])
+plot!(xD[end,:],yD[end,:])
+t[end-85]
 tD[end-2]
+
+t[end-1]
+tD[end]
+
+
+
+
+
+
+
+
+
+Xfull[2,:]
+
 
 
 plot(xD[1,:],yD[1,:])

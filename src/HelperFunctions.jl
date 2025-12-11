@@ -35,6 +35,11 @@ function conformalMap(R::AbstractVector{<:Number})
     return Ω
 end
 
+function conformalMap!(Ω,R)
+    Ω .= exp.(-im*R)
+    return Ω
+end
+
 function conformalDepth(h::Real)
     #=
     conformalDepth is a function that takes the real depth h and transforms it to the more useful conformal value H, which tends to 0 at inifinite depth. 
@@ -88,6 +93,39 @@ function DDI1(Ω::AbstractVector{<:Number}, offset)
     # return Ω_ξ
 end
 
+# Create an in-place function that just mutates variables 
+function DDI1!(Ω_ξ::AbstractVector{<:Number},Ω::AbstractVector{<:Number},offset,N::Int,c::Vector{Float64})
+
+    # First, handle interior points where no offset is needed 
+    @inbounds for i ∈ 6:(N-5)
+        Ω_ξ[i] = c[1] * (Ω[i+1] - Ω[i-1]) +
+             c[2] * (Ω[i+2] - Ω[i-2]) +
+             c[3] * (Ω[i+3] - Ω[i-3]) +
+             c[4] * (Ω[i+4] - Ω[i-4]) +
+             c[5] * (Ω[i+5] - Ω[i-5])
+    end 
+
+    # Next handle points with offset 
+    @inbounds for i ∈ 1:5
+        Ω_ξ[i] = c[1] * (Ω[i+1] - (Ω[mod1(i-1, N)]+offset*fld(i-2,N))) +
+        c[2] * (Ω[i+2] - (Ω[mod1(i-2, N)]+offset*fld(i-3,N))) +
+        c[3] * (Ω[i+3] - (Ω[mod1(i-3, N)]+offset*fld(i-4,N))) + 
+        c[4] * (Ω[i+4] - (Ω[mod1(i-4, N)]+offset*fld(i-5,N))) +
+        c[5] * (Ω[i+5] - (Ω[mod1(i-5, N)]+offset*fld(i-6,N))) 
+    end 
+
+    @inbounds for i ∈ (N-4):N 
+        Ω_ξ[i] = c[1] * (Ω[mod1(i+1, N)]+offset*fld(i,N) - Ω[i-1]) +
+        c[2] * (Ω[mod1(i+2, N)]+offset*fld(i+1,N) - Ω[i-2]) +
+        c[3] * (Ω[mod1(i+3, N)]+offset*fld(i+2,N) - Ω[i-3]) + 
+        c[4] * (Ω[mod1(i+4, N)]+offset*fld(i+3,N) - Ω[i-4]) + 
+        c[5] * (Ω[mod1(i+5, N)]+offset*fld(i+4,N) - Ω[i-5])
+    end 
+    
+    return Ω_ξ
+end
+
+
 function DDI2(Ω::AbstractVector{<:Number},offset)
     #=
     DDI2 is a function that uses an 11-point finite difference stencil to estimate the first derivative of Ω with respect to particle label ξ
@@ -111,6 +149,41 @@ function DDI2(Ω::AbstractVector{<:Number},offset)
 
     return Ω_ξξ
 end
+
+function DDI2!(Ω_ξξ::AbstractVector{<:Number},Ω::AbstractVector{<:Number},offset,N::Int,c::Vector{Float64})
+
+    # First, handle interior points where no offset is needed 
+    @inbounds for i ∈ 6:(N-5)
+        Ω_ξξ[i] = c[1] * Ω[i] +
+        c[2] * (Ω[i+1] + Ω[i-1]) +
+        c[3] * (Ω[i+2] + Ω[i-2]) +
+        c[4] * (Ω[i+3] + Ω[i-3]) +
+        c[5] * (Ω[i+4] + Ω[i-4]) +
+        c[6] * (Ω[i+5] + Ω[i-5])
+    end 
+
+    # Next handle points with offset 
+    @inbounds for i ∈ 1:5
+        Ω_ξξ[i] = c[1] * Ω[i] +
+        c[2] * (Ω[i+1] + (Ω[mod1(i-1, N)]+offset*fld(i-2,N))) +
+        c[3] * (Ω[i+2] + (Ω[mod1(i-2, N)]+offset*fld(i-3,N))) +
+        c[4] * (Ω[i+3] + (Ω[mod1(i-3, N)]+offset*fld(i-4,N))) + 
+        c[5] * (Ω[i+4] + (Ω[mod1(i-4, N)]+offset*fld(i-5,N))) +
+        c[6] * (Ω[i+5] + (Ω[mod1(i-5, N)]+offset*fld(i-6,N))) 
+    end 
+
+    @inbounds for i ∈ (N-4):N 
+        Ω_ξξ[i] = c[1] * Ω[i] + 
+        c[2] * (Ω[mod1(i+1, N)]+offset*fld(i,N) + Ω[i-1]) +
+        c[3] * (Ω[mod1(i+2, N)]+offset*fld(i+1,N) + Ω[i-2]) +
+        c[4] * (Ω[mod1(i+3, N)]+offset*fld(i+2,N) + Ω[i-3]) + 
+        c[5] * (Ω[mod1(i+4, N)]+offset*fld(i+3,N) + Ω[i-4]) + 
+        c[6] * (Ω[mod1(i+5, N)]+offset*fld(i+4,N) + Ω[i-5])
+    end 
+    
+    return Ω_ξξ
+end
+
 
 function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, H::Real=0.0)
     #=
@@ -158,6 +231,72 @@ function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number
     return A,B,ℵ
 end
 
+function ABMatrices!(A,B,C,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, H,N)
+    #=
+    The ABMatrices function sets up the A and B matrices from Dold eq. 4.13, using a necesary conditional double for loop.
+    While it is a computationally expensive function, it is separated from the matrix inversion step because it is only needed once per timestep.
+
+    Input:
+    Ω - complex vector of conformally mapped positions of particles
+    Ω_ξ - first-order derivative of Ω with respect to particle labels ξ
+    N - number of particles
+    H - parameter specified in Dold for bottom depth boundary condition. Defaulted to 0 for infinite depth.
+
+    Output:
+    A - Matrix
+    B - Matrix
+    ℵ - matrix of π I - B for use in NormalInversion
+    =#
+    if iszero(H)
+        # create matrix of differences
+        @inbounds for j in 1:N, i in 1:N
+            ΔΩ[i,j] = Ω[i] - Ω[j]
+        end
+        # Compute off-diagonal elements first (diagonals will be Inf)
+        @inbounds for j in 1:N, i in 1:N
+            if i ≠ j
+                C[i,j] = Ω_ξ[i] / ΔΩ[i,j]
+            end
+        end    
+        # Fill diagonal
+        @inbounds for i in 1:N
+            C[i,i] = 0.5 * Ω_ξξ[i] / Ω_ξ[i]
+        end
+
+    else #
+        C = zeros(Complex, N, N)    # C = A + iB
+        for ξ_p in 1:N
+            for ξ in 1:N
+                C[ξ,ξ_p] = -conj((H * Ω_ξ[ξ] / conj(Ω[ξ_p])) / (Ω[ξ] * (Ω[ξ] - H / conj(Ω[ξ_p]))))
+                if ξ_p == ξ     
+                    C[ξ,ξ_p] += Ω_ξξ[ξ] / (2 * Ω_ξ[ξ])
+                else
+                    C[ξ,ξ_p] += Ω_ξ[ξ] / (Ω[ξ] - Ω[ξ_p])
+                end
+            end
+        end
+    end
+        
+    @inbounds for i in 1:N*N
+        A[i] = real(C[i])
+        B[i] = imag(C[i])
+    end
+
+    @inbounds for i in 1:N
+        for j in 1:N
+            if i == j
+                C[i,j] = π - B[i,j]  # π*I - B
+            else
+                C[i,j] = -B[i,j]     # -B off-diagonal
+            end
+        end
+    end
+    
+    ℵ = factorize(C)
+
+    return ℵ
+end
+
 function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ)
     #= 
     NormalInversion is a function that implements the matrix inversion method from Dold eq 4.13 in order to compute the normal derivative of the scalar velocity potential. The method is based on using a conformal mapping and the Cauchy integral theorem for solving the Laplacian equation. The subtlety lies in the issue that, for solely surface particles at b=0, there is no Lagrangian normal derivative as there are no particles above or below. For efficiency, due to the need of the tangential derivative, it is first computed and returned along with the normal derivative here.
@@ -184,6 +323,46 @@ function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, 
     ϕ_ν = ℵ \ b
 
     return ϕ_ξ, ϕ_ν
+end
+
+function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν::Vector{Float64},b::Vector{Float64}, ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ,N::Int,c1,c2)
+    #= 
+    NormalInversion is a function that implements the matrix inversion method from Dold eq 4.13 in order to compute the normal derivative of the scalar velocity potential. The method is based on using a conformal mapping and the Cauchy integral theorem for solving the Laplacian equation. The subtlety lies in the issue that, for solely surface particles at b=0, there is no Lagrangian normal derivative as there are no particles above or below. For efficiency, due to the need of the tangential derivative, it is first computed and returned along with the normal derivative here.
+        
+    The implementation here is mathematically simplified from Dold's formula to take the form of an Ax = b matrix equation, and is thus quite compact and optimized.
+
+    Input:
+    ϕ - real vector of scalar velocity potential
+    A - matrix built from ABMatrices
+    ℵ - 
+
+    Output:
+    ϕ_ξ - real vector of tangential partial derivative of with respect to particle label ξ
+    ϕ_ν - real vector of normal partial derivative scaled by
+    =#
+
+    DDI1!(ϕ_ξ,ϕ,0,N,c1)
+    DDI2!(ϕ_ξξ,ϕ,0,N,c2)
+    
+    @inbounds for i ∈ 1:N 
+        # Initialize accumulator
+        acc = 0.0
+    
+        # Dot product: row i of A with ϕ_ξ
+        for j ∈ 1:N
+            acc += A[i,j] * ϕ_ξ[j]
+        end
+    
+     # Subtract ϕ_ξξ[i]
+        b[i] = acc - ϕ_ξξ[i]
+    end
+
+
+    # Important: here the * is not element wise to get the sum A*ϕ_ξ for each one-element row entry of the resulting column vector, while the difference is element wise to subtract ϕ_ξξ[i] from each of the summed entries.
+    b = ((A * ϕ_ξ) .- ϕ_ξξ)
+
+    # Solve ℵ ϕ_ν = b 
+    ldiv!(ϕ_ν, ℵ, b)
 end
 
 function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, p::SimulationParameters)
@@ -260,6 +439,68 @@ function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<
     D3ϕDt3 = DuDt.^2 .+ DvDt.^2 .+ ϕ_x .* D2uDt2 .+ ϕ_y .* D2vDt2 .- p.g.*DvDt
 
     return DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
+end
+
+function TimeDerivatives!(DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
+    X_ξ,Y_ξ,ϕ_x,ϕ_y,A,b,ℵ,Y,N,c1,c2,
+    ϕ_t,ϕ_tξ,ϕ_tξξ,ϕ_tν,u_t,u_tξ,v_t,v_tξ,u_ξ,v_ξ,u_x,v_x,u_tx,v_tx,u_xξ,v_xξ,u_xx,v_xx,
+    ϕ_tt,ϕ_ttξ,ϕ_ttξξ,ϕ_ttν,u_tt,v_tt,inverseds2,g)
+    #=
+    TimeDerivatives is a function that computes up to the third Lagrangian time derivative
+    of both the positions (x,y) and velocity potential ϕ
+    =#
+
+    # First derivatives of x,y just found from ϕ_x, ϕ_y which we already have
+    # Evolution of ϕ comes from Bernoulli's equation at the free surface
+    @inbounds for i ∈ 1:N
+        DϕDt[i] = 0.5*(ϕ_x[i]^2 + ϕ_y[i]^2) - g*Y[i]
+        ϕ_t[i] = - 0.5*(ϕ_x[i]^2 + ϕ_y[i]^2) - g*Y[i]
+    end
+
+    # Get Eulerian time derivatives of velocities 
+    NormalInversion!(ϕ_tξ,ϕ_tξξ, ϕ_tν,b,ϕ_t, A, ℵ,N,c1,c2)
+    # Computes ut, vt, Eulerian 
+    RealPhi!(u_t,v_t,X_ξ,Y_ξ,inverseds2,ϕ_tξ,ϕ_tν,N)
+
+    # From this, can compute up to third time derivatives 
+    DDI1!(u_ξ,ϕ_x,0,N,c1)
+    DDI1!(v_ξ,ϕ_y,0,N,c1)
+    DDI1!(u_tξ,u_t,0,N,c1)
+    DDI1!(v_tξ,v_t,0,N,c1)
+    @inbounds for i ∈ 1:N 
+        # Compute u_x (which by Cauchy-Riemann is equal to -v_y)
+        u_x[i] = (u_ξ[i]*X_ξ[i] - v_ξ[i]*Y_ξ[i])*inverseds2[i]
+        # Compute v_x (which by Cauchy-Riemann is equal to u_y)
+        v_x[i] = (u_ξ[i]*Y_ξ[i] + v_ξ[i]*X_ξ[i])*inverseds2[i]
+        # Compute u_tx (which by Cauchy-Riemann is equal to -v_ty)
+        u_tx[i] = (u_tξ[i]*X_ξ[i] - v_tξ[i]*Y_ξ[i])*inverseds2[i]
+        # Compute v_tx (which by Cauchy-Riemann is equal to u_ty)
+        v_tx[i] = (u_tξ[i]*Y_ξ[i] + v_tξ[i]*X_ξ[i])*inverseds2[i]
+    end
+    # From this, compute u_xξ and v_xξ
+    DDI1!(u_xξ,u_x,0,N,c1)
+    DDI1!(v_xξ,v_x,0,N,c1)
+    # Compute two more terms from this 
+    @inbounds for i ∈ 1:N 
+        u_xx[i] = (u_xξ[i]*X_ξ[i] - v_xξ[i]*Y_ξ[i])*inverseds2[i]
+        v_xx[i] = (u_xξ[i]*Y_ξ[i] + v_xξ[i]*X_ξ[i])*inverseds2[i]
+        DuDt[i] = (u_t[i] + ϕ_x[i]*u_x[i] + ϕ_y[i]*v_x[i])
+        DvDt[i] = (v_t[i] + ϕ_x[i]*v_x[i] - ϕ_y[i]*u_x[i])
+        D2ϕDt2[i] = ϕ_x[i]*DuDt[i] + ϕ_y[i]*DvDt[i] - g*ϕ_y[i]
+        ϕ_tt[i] = -ϕ_x[i]*u_t[i] - ϕ_y[i]*v_t[i]
+    end
+
+    # One last inversion to get second Eulerian time derivatives of velocities
+    NormalInversion!(ϕ_ttξ,ϕ_ttξξ, ϕ_ttν,b,ϕ_tt, A, ℵ,N,c1,c2)
+    # Computes ut, vt, Eulerian 
+    RealPhi!(u_tt,v_tt,X_ξ,Y_ξ,inverseds2,ϕ_ttξ,ϕ_ttν,N)
+    
+    # Compute third order time derivatives
+    @inbounds for i ∈ 1:N 
+        D2uDt2[i] = u_tt[i] + 2*(ϕ_x[i]*u_tx[i] + ϕ_y[i]*v_tx[i]) + u_t[i]*u_x[i] + v_t[i]*v_x[i] + (u_x[i]^2 + v_x[i]^2)*ϕ_x[i] + (ϕ_x[i]^2 - ϕ_y[i]^2)*u_xx[i] + 2*ϕ_x[i]*ϕ_y[i]*v_xx[i]
+        D2vDt2[i] = v_tt[i] + 2*(ϕ_x[i]*v_tx[i] - ϕ_y[i]*u_tx[i]) + u_t[i]*v_x[i] - v_t[i]*u_x[i] + (u_x[i]^2 + v_x[i]^2)*ϕ_y[i] + (ϕ_x[i]^2 + ϕ_y[i]^2)*v_xx[i] - 2*ϕ_x[i]*ϕ_y[i]*u_xx[i]
+        D3ϕDt3[i] = DuDt[i]^2 + DvDt[i]^2 + ϕ_x[i]*D2uDt2[i] + ϕ_y[i]*D2vDt2[i] - g*DvDt[i]
+    end
 end
 
 
@@ -415,6 +656,26 @@ function RealPhi(R_ξ::AbstractVector{<:Complex}, ϕ_ξ::AbstractVector{<:Real},
     return ϕ_x, ϕ_y
 end
 
+function RealPhi!(ϕ_x,ϕ_y,X_ξ,Y_ξ,inverseds2, ϕ_ξ::AbstractVector{<:Real}, ϕ_ν::AbstractVector{<:Real},N)
+    #=
+    RealPhi is a small helper function that is used to transform back from the conformally mapped variables to the real plane when timestepping the real X, Y, ϕ arrays. Specically, the relation formula between the complex ϕ_x + iϕ_y and the ξ and ν partial derivatives is exploited.
+
+    Input:
+    R_ξ - complex vector representation of position vectors X + iY
+    ϕ_ξ - real vector of partial derivatives of ϕ with respect to label ξ
+    ϕ_ν - real vector of normal partial derivatives of ϕ scaled by 
+
+    Output:
+    ϕ_x - real vector of U velocity for particles on the surface
+    ϕ_y - real vector of V velocity for particles on the surface
+    =#
+
+    @inbounds for i ∈ 1:N
+        ϕ_x[i] = (ϕ_ξ[i]*X_ξ[i] - ϕ_ν[i]*Y_ξ[i])*inverseds2[i]
+        ϕ_y[i] = (ϕ_ν[i]*X_ξ[i] + ϕ_ξ[i]*Y_ξ[i])*inverseds2[i]
+    end
+end
+
 function TaylorTimestep(dt, f, f_t = 0, f_tt = 0, f_ttt = 0)
     # We give a function of ζ and t, ϕ or r (x, y). Within a timestep, time is fixed so the functions given are just spatial. Then g = f(t+dt) by truncated Taylor expansion.
     g = f .+ dt .* f_t .+ 0.5 .* dt^2 .* f_tt .+ (1/6) .* dt^3 .* f_ttt
@@ -445,6 +706,54 @@ function smooth(Ω::AbstractVector{<:Number},offset)
     end
     return Ω_sm
 end
+
+# In-place functions to reduce extra allocations 
+function smooth!(Ω_sm_temp::AbstractVector{<:Number},Ω::AbstractVector{<:Number},offset,N::Int,c)
+
+    # First, handle interior points where no offset is needed 
+    @inbounds for i ∈ 8:(N-7)
+        δM = c[1] * Ω[i] +
+             c[2] * (Ω[i+1] + Ω[i-1]) +
+             c[3] * (Ω[i+2] + Ω[i-2]) +
+             c[4] * (Ω[i+3] + Ω[i-3]) +
+             c[5] * (Ω[i+4] + Ω[i-4]) +
+             c[6] * (Ω[i+5] + Ω[i-5]) +
+             c[7] * (Ω[i+6] + Ω[i-6]) +
+             c[8] * (Ω[i+7] + Ω[i-7])
+        Ω_sm_temp[i] = Ω[i] - δM
+    end 
+
+    # Next handle points with offset 
+    @inbounds for i ∈ 1:7
+        δM = c[1] * Ω[i] +
+        c[2] * (Ω[i+1] + Ω[mod1(i-1, N)]+offset*fld(i-2,N)) +
+        c[3] * (Ω[i+2] + Ω[mod1(i-2, N)]+offset*fld(i-3,N)) +
+        c[4] * (Ω[i+3] + Ω[mod1(i-3, N)]+offset*fld(i-4,N)) + 
+        c[5] * (Ω[i+4] + Ω[mod1(i-4, N)]+offset*fld(i-5,N)) +
+        c[6] * (Ω[i+5] + Ω[mod1(i-5, N)]+offset*fld(i-6,N)) +
+        c[7] * (Ω[i+6] + Ω[mod1(i-6, N)]+offset*fld(i-7,N)) +
+        c[8] * (Ω[i+7] + Ω[mod1(i-7, N)]+offset*fld(i-8,N))
+        Ω_sm_temp[i] = Ω[i] - δM
+    end 
+
+    @inbounds for i ∈ (N-6):N 
+        δM = c[1]*Ω[i] + 
+        c[2] * (Ω[mod1(i+1, N)]+offset*fld(i,N) + Ω[i-1]) +
+        c[3] * (Ω[mod1(i+2, N)]+offset*fld(i+1,N) + Ω[i-2]) +
+        c[4] * (Ω[mod1(i+3, N)]+offset*fld(i+2,N) + Ω[i-3]) + 
+        c[5] * (Ω[mod1(i+4, N)]+offset*fld(i+3,N) + Ω[i-4]) + 
+        c[6] * (Ω[mod1(i+5, N)]+offset*fld(i+4,N) + Ω[i-5]) +
+        c[7] * (Ω[mod1(i+6, N)]+offset*fld(i+5,N) + Ω[i-6]) +
+        c[8] * (Ω[mod1(i+7, N)]+offset*fld(i+6,N) + Ω[i-7])
+        Ω_sm_temp[i] = Ω[i] - δM
+    end 
+    
+    # Copy elements back to array 
+    copy!(Ω, Ω_sm_temp)
+    return Ω
+end
+
+
 
 function simpsons_rule_periodic(X, Y)
     n = length(X)
