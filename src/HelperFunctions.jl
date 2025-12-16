@@ -7,6 +7,7 @@ using DrWatson
 using LinearAlgebra 
 using Statistics
 using Polynomials
+using Base.Threads
 
 include("Constants.jl")
 
@@ -94,7 +95,7 @@ function DDI1(Ω::AbstractVector{<:Number}, offset)
 end
 
 # Create an in-place function that just mutates variables 
-function DDI1!(Ω_ξ::AbstractVector{<:Number},Ω::AbstractVector{<:Number},offset,N::Int,c::Vector{Float64})
+function DDI1!(Ω_ξ::Vector{T},Ω::Vector{T},offset::T,N::Int,c::Vector{Float64}) where T
 
     # First, handle interior points where no offset is needed 
     @inbounds for i ∈ 6:(N-5)
@@ -150,7 +151,7 @@ function DDI2(Ω::AbstractVector{<:Number},offset)
     return Ω_ξξ
 end
 
-function DDI2!(Ω_ξξ::AbstractVector{<:Number},Ω::AbstractVector{<:Number},offset,N::Int,c::Vector{Float64})
+function DDI2!(Ω_ξξ::Vector{T},Ω::Vector{T},offset::T,N::Int,c::Vector{Float64}) where T
 
     # First, handle interior points where no offset is needed 
     @inbounds for i ∈ 6:(N-5)
@@ -231,7 +232,7 @@ function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number
     return A,B,ℵ
 end
 
-function ABMatrices!(A,B,C,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, H,N)
+function ABMatrices!(A,B,C,Cinter,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, H,N)
     #=
     The ABMatrices function sets up the A and B matrices from Dold eq. 4.13, using a necesary conditional double for loop.
     While it is a computationally expensive function, it is separated from the matrix inversion step because it is only needed once per timestep.
@@ -249,11 +250,11 @@ function ABMatrices!(A,B,C,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVec
     =#
     if iszero(H)
         # create matrix of differences
-        @inbounds for j in 1:N, i in 1:N
+        @inbounds for j in 1:N , i ∈ 1:N
             ΔΩ[i,j] = Ω[i] - Ω[j]
         end
         # Compute off-diagonal elements first (diagonals will be Inf)
-        @inbounds for j in 1:N, i in 1:N
+        @inbounds for j in 1:N, i ∈ 1:N
             if i ≠ j
                 C[i,j] = Ω_ξ[i] / ΔΩ[i,j]
             end
@@ -285,14 +286,14 @@ function ABMatrices!(A,B,C,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVec
     @inbounds for i in 1:N
         for j in 1:N
             if i == j
-                C[i,j] = π - B[i,j]  # π*I - B
+                Cinter[i,j] = π - B[i,j]  # π*I - B
             else
-                C[i,j] = -B[i,j]     # -B off-diagonal
+                Cinter[i,j] = -B[i,j]     # -B off-diagonal
             end
         end
     end
     
-    ℵ = factorize(C)
+    ℵ = lu(Cinter)
 
     return ℵ
 end
@@ -325,7 +326,7 @@ function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, 
     return ϕ_ξ, ϕ_ν
 end
 
-function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν::Vector{Float64},b::Vector{Float64}, ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, ℵ,N::Int,c1,c2)
+function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν::Vector{Float64},b::Vector{Float64}, ϕ::AbstractVector{<:Real}, A, ℵ,N::Int,c1,c2)
     #= 
     NormalInversion is a function that implements the matrix inversion method from Dold eq 4.13 in order to compute the normal derivative of the scalar velocity potential. The method is based on using a conformal mapping and the Cauchy integral theorem for solving the Laplacian equation. The subtlety lies in the issue that, for solely surface particles at b=0, there is no Lagrangian normal derivative as there are no particles above or below. For efficiency, due to the need of the tangential derivative, it is first computed and returned along with the normal derivative here.
         
@@ -341,8 +342,8 @@ function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν
     ϕ_ν - real vector of normal partial derivative scaled by
     =#
 
-    DDI1!(ϕ_ξ,ϕ,0,N,c1)
-    DDI2!(ϕ_ξξ,ϕ,0,N,c2)
+    DDI1!(ϕ_ξ,ϕ,0.0,N,c1)
+    DDI2!(ϕ_ξξ,ϕ,0.0,N,c2)
     
     @inbounds for i ∈ 1:N 
         # Initialize accumulator
@@ -362,7 +363,7 @@ function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν
     b = ((A * ϕ_ξ) .- ϕ_ξξ)
 
     # Solve ℵ ϕ_ν = b 
-    ldiv!(ϕ_ν, ℵ, b)
+    ldiv!(ϕ_ν,ℵ,b)
 end
 
 function PhiTimeDer(R_ξ, ϕ_ξ, ϕ_ν, Y, p::SimulationParameters)
@@ -406,10 +407,10 @@ function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<
     xξ = real(R_ξ)
     yξ = imag(R_ξ)
     spacing = xξ.^2 .+ yξ.^2
-    uξ = DDI1(ϕ_x,0)
-    vξ = DDI1(ϕ_y,0)
-    utξ = DDI1(ut,0)
-    vtξ = DDI1(vt,0)
+    uξ = DDI1(ϕ_x,0.0)
+    vξ = DDI1(ϕ_y,0.0)
+    utξ = DDI1(ut,0.0)
+    vtξ = DDI1(vt,0.0)
     ux = (uξ.*xξ .- vξ.*yξ)./spacing
     vy = -ux
     vx = (uξ.*yξ .+ vξ.*xξ)./spacing
@@ -463,10 +464,10 @@ function TimeDerivatives!(DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
     RealPhi!(u_t,v_t,X_ξ,Y_ξ,inverseds2,ϕ_tξ,ϕ_tν,N)
 
     # From this, can compute up to third time derivatives 
-    DDI1!(u_ξ,ϕ_x,0,N,c1)
-    DDI1!(v_ξ,ϕ_y,0,N,c1)
-    DDI1!(u_tξ,u_t,0,N,c1)
-    DDI1!(v_tξ,v_t,0,N,c1)
+    DDI1!(u_ξ,ϕ_x,0.0,N,c1)
+    DDI1!(v_ξ,ϕ_y,0.0,N,c1)
+    DDI1!(u_tξ,u_t,0.0,N,c1)
+    DDI1!(v_tξ,v_t,0.0,N,c1)
     @inbounds for i ∈ 1:N 
         # Compute u_x (which by Cauchy-Riemann is equal to -v_y)
         u_x[i] = (u_ξ[i]*X_ξ[i] - v_ξ[i]*Y_ξ[i])*inverseds2[i]
@@ -478,8 +479,8 @@ function TimeDerivatives!(DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
         v_tx[i] = (u_tξ[i]*Y_ξ[i] + v_tξ[i]*X_ξ[i])*inverseds2[i]
     end
     # From this, compute u_xξ and v_xξ
-    DDI1!(u_xξ,u_x,0,N,c1)
-    DDI1!(v_xξ,v_x,0,N,c1)
+    DDI1!(u_xξ,u_x,0.0,N,c1)
+    DDI1!(v_xξ,v_x,0.0,N,c1)
     # Compute two more terms from this 
     @inbounds for i ∈ 1:N 
         u_xx[i] = (u_xξ[i]*X_ξ[i] - v_xξ[i]*Y_ξ[i])*inverseds2[i]
@@ -708,7 +709,7 @@ function smooth(Ω::AbstractVector{<:Number},offset)
 end
 
 # In-place functions to reduce extra allocations 
-function smooth!(Ω_sm_temp::AbstractVector{<:Number},Ω::AbstractVector{<:Number},offset,N::Int,c)
+function smooth!(Ω_sm_temp::Vector{Float64},Ω::Vector{Float64},offset::Float64,N::Int,c::Vector{Float64})
 
     # First, handle interior points where no offset is needed 
     @inbounds for i ∈ 8:(N-7)

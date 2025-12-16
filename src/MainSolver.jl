@@ -38,8 +38,9 @@ struct SimulationParameters
     errortol::Float64
     smoothing::Bool 
     g::Float64
+end
 
-    function SimulationParameters(L,h,dt,T;errortol=1e-5,smoothing=true,g=9.81)
+function SimulationParameters(L,h,dt,T;errortol=1e-5,smoothing=true,g=9.81)
         # Convert variables to explicit types 
         L = Float64(L)
         h = Float64(h)
@@ -55,9 +56,11 @@ struct SimulationParameters
         h̃ = h/lengthScale
         dt̃ = dt/timeScale
         T̃ = T/timeScale
-        return new(L,h,dt,T,lengthScale,timeScale,h̃,dt̃,T̃,errortol,smoothing,g)
-    end 
-end
+        return SimulationParameters(L, h, dt, T,
+                               lengthScale, timeScale, h̃, dt̃, T̃,
+                               errortol, smoothing, g)
+end 
+
 
 
 function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, p::SimulationParameters,N::Int,H)
@@ -85,8 +88,8 @@ function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real
     # Compute derivatives 
     # Requires to be non-dimensionsionalized
     R_ξ = DDI1(X .+ im*Y,2π)
-    Ω_ξ = DDI1(Ω,0)
-    Ω_ξξ = DDI2(Ω,0)
+    Ω_ξ = DDI1(Ω,0.0)
+    Ω_ξξ = DDI2(Ω,0.0)
 
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
@@ -103,7 +106,7 @@ function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real
     ϕ_tt,ϕ_ttξ,ϕ_ttν,u_tt,v_tt)
 end
 
-function fixedTimeOperations!(Ω,X,Y,X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,A,B,C,ΔΩ,
+function fixedTimeOperations!(Ω,X,Y,X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,A,B,C,Cinter,ΔΩ,
     H,ϕ_ξ,ϕ_ξξ,ϕ_ν,b,ϕ,ϕ_x,ϕ_y,
     DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
     ϕ_t,ϕ_tξ,ϕ_tξξ,ϕ_tν,u_t,u_tξ,v_t,v_tξ,u_ξ,v_ξ,u_x,v_x,u_tx,v_tx,u_xξ,v_xξ,u_xx,v_xx,
@@ -130,9 +133,9 @@ function fixedTimeOperations!(Ω,X,Y,X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,
     conformalMap!(Ω,X .+ im*Y)
     # Compute derivatives 
     DDI1!(X_ξ,X,2π,N,c1)
-    DDI1!(Y_ξ,Y,0,N,c1)
-    DDI1!(Ω_ξ,Ω,0,N,c1)
-    DDI2!(Ω_ξξ,Ω,0,N,c2)
+    DDI1!(Y_ξ,Y,0.0,N,c1)
+    DDI1!(Ω_ξ,Ω,zero(eltype(Ω)),N,c1)
+    DDI2!(Ω_ξξ,Ω,zero(eltype(Ω)),N,c2)
 
     # Computing inverse spacing (used a lot)
     @inbounds for i ∈ 1:N 
@@ -140,7 +143,7 @@ function fixedTimeOperations!(Ω,X,Y,X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,
     end 
 
     # The matrix method described in Dold is used to find the normal derivative of the potential.
-    ℵ = ABMatrices!(A,B,C,ΔΩ, Ω, Ω_ξ, Ω_ξξ, H,N)
+    ℵ = ABMatrices!(A,B,C,Cinter,ΔΩ, Ω, Ω_ξ, Ω_ξξ, H,N)
     NormalInversion!(ϕ_ξ,ϕ_ξξ,ϕ_ν,b,ϕ, A, ℵ,N,c1,c2)
 
     # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
@@ -210,9 +213,12 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     push!(Yfull,YS .- MWL)
     push!(ϕfull,ϕS)
 
-    Smoothcoefficients = copy(SMOOTHCOEFFICIENTS);
-    c1 = copy(COEFFICIENTS1);
-    c2 = copy(COEFFICIENTS2);
+    c1 =[2100.0, -600.0, 150.0, -25.0, 2.0] ./ 2520.0;
+
+
+    c2 = [-9220.75, 5250.0, -750.0, 125.0, -15.625, 1.0]./3150;
+
+    Smoothcoefficients =  [3432.0, -3003.0, 2002.0, -1001.0, 364.0, -91.0, 14.0, -1.0]./(2^14);
 
     # Preallocate all intermediate variables 
     Ω_sm_temp = similar(X)
@@ -279,6 +285,7 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     R_ξ = similar(Ω)
     A = Matrix{Float64}(undef,N,N)
     B = similar(A)
+    Cinter = similar(A)
     C = Matrix{ComplexF64}(undef,N,N)
     ΔΩ = similar(C)
 
@@ -293,12 +300,12 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             # smooth data if desired (and not for first timestep)
             if smoothingval && length(t) > 1
                 smooth!(Ω_sm_temp,Xfull[end],2π,N,Smoothcoefficients)
-                smooth!(Ω_sm_temp,Yfull[end],0,N,Smoothcoefficients)
-                smooth!(Ω_sm_temp,ϕfull[end],0,N,Smoothcoefficients)
+                smooth!(Ω_sm_temp,Yfull[end],0.0,N,Smoothcoefficients)
+                smooth!(Ω_sm_temp,ϕfull[end],0.0,N,Smoothcoefficients)
             end
 
             # Compute up to third order derivatives of X, Y, ϕ 
-            fixedTimeOperations!(Ω,Xfull[end],Yfull[end],X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,A,B,C,ΔΩ,
+            fixedTimeOperations!(Ω,Xfull[end],Yfull[end],X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,A,B,C,Cinter,ΔΩ,
             H,ϕ_ξ,ϕ_ξξ,ϕ_ν,b,ϕfull[end],ϕ_x,ϕ_y,
             DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
             ϕ_t,ϕ_tξ,ϕ_tξξ,ϕ_tν,u_t,u_tξ,v_t,v_tξ,u_ξ,v_ξ,u_x,v_x,u_tx,v_tx,u_xξ,v_xξ,u_xx,v_xx,
@@ -320,7 +327,7 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             end
 
             # Estimate derivatives at the predicted surface
-            fixedTimeOperations!(Ω,Xnext,Ynext,X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,A,B,C,ΔΩ,
+            fixedTimeOperations!(Ω,Xnext,Ynext,X_ξ,N,c1,c2,Y_ξ,Ω_ξ,Ω_ξξ,inverseds2,A,B,C,Cinter,ΔΩ,
             H,ϕ_ξ,ϕ_ξξ,ϕ_ν,b,ϕnext,ϕ_xp,ϕ_yp,
             DϕDtp,DuDtp,DvDtp,D2ϕDt2p,D2uDt2p,D2vDt2p,D3ϕDt3p,
             ϕ_t,ϕ_tξ,ϕ_tξξ,ϕ_tν,u_t,u_tξ,v_t,v_tξ,u_ξ,v_ξ,u_x,v_x,u_tx,v_tx,u_xξ,v_xξ,u_xx,v_xx,
@@ -338,7 +345,7 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             push!(ϕfull,copy(ϕcorr))
             push!(t,t[end] + Δt)
         catch e
-            if e isa ArgumentError 
+            if e isa Union{ArgumentError,InexactError}
                 println("Surface became multi-valued. Aborting simulation.")
                 breaking = true
             else

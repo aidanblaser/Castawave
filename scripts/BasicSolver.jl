@@ -12,11 +12,11 @@ include(projectdir()*"/src/MainSolver.jl")
 include(projectdir()*"/src/ClamondIC.jl")
 include(projectdir()*"/src/DoldFcns.jl")
 
-N = 128
+N = 256
 n = N
-A = 0.45
+A = 0.4
 Δt = 0.1
-T = 0.5
+T = 3
 L = 2π;
 k = 1;
 h = 0.0;
@@ -40,16 +40,15 @@ Xfull[end-20,:]
 
 X, Y, ϕ, c = getIC(Inf,0.3,128÷2)
 
-
+runSim(X,Y,ϕ,p)
 
 plot(Xfull[1,:],Yfull[1,:])
-plot!(Xfull[end-1,:],Yfull[end-1,:])
-plot!(xD[end,:],yD[end,:])
+plot!(mod.(Xfull[end-5,:],2π),Yfull[end-5,:])
+plot!(mod.(xD[end,:],2π),yD[end,:])
 t[end-85]
 tD[end-2]
 
-t[end-1]
-tD[end]
+
 
 
 
@@ -110,6 +109,22 @@ p = SimulationParameters(L,h,Δt,T)
 
 using StatProfilerHTML
 StatProfilerHTML.@profilehtml runSim(X, Y, ϕ,p)
+
+using Profile, ProfileSVG
+@profile runSim(X,Y,ϕ,p)
+Profile.print(format=:flat)
+
+#ProfileSVG.save(projectdir()*"profile.svg")
+
+Xend = Xfull[end-10,:]
+Yend = Yfull[end-10,:]
+
+Xendξ = DDI1(Xend,2π)
+Yendξ = DDI1(Yend,0)
+plot(Xendξ)
+plot(Xend)
+plot(Yendξ)
+plot(Yend)
 
 plotlyjs()
 gr()
