@@ -232,41 +232,51 @@ function ABMatrices(Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number
     return A,B,ℵ
 end
 
-function ABMatrices!(A,B,C,Cinter,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number}, H,N)
+function ABMatrices!(ws::SolverWorkspace, Ω::AbstractVector{<:Number}, Ω_ξ::AbstractVector{<:Number}, Ω_ξξ::AbstractVector{<:Number})
     #=
     The ABMatrices function sets up the A and B matrices from Dold eq. 4.13, using a necesary conditional double for loop.
     While it is a computationally expensive function, it is separated from the matrix inversion step because it is only needed once per timestep.
 
     Input:
+    ws - SolverWorkspace holding the preallocated A, B, C, Cinter, ΔΩ buffers plus H and N for this run
     Ω - complex vector of conformally mapped positions of particles
     Ω_ξ - first-order derivative of Ω with respect to particle labels ξ
-    N - number of particles
-    H - parameter specified in Dold for bottom depth boundary condition. Defaulted to 0 for infinite depth.
+    Ω_ξξ - second-order derivative of Ω with respect to particle labels ξ
 
     Output:
-    A - Matrix
-    B - Matrix
-    ℵ - matrix of π I - B for use in NormalInversion
+    ℵ - matrix factorization of π I - B for use in NormalInversion
     =#
+    (; A, B, C, Cinter, ΔΩ, H, N) = ws
+
     if iszero(H)
         # create matrix of differences
-        @inbounds for j in 1:N , i ∈ 1:N
-            ΔΩ[i,j] = Ω[i] - Ω[j]
+        # Threaded over j: each thread only ever writes to its own column of
+        # ΔΩ, so there's no data race between threads. This N x N build (and
+        # the off-diagonal fill below) is the most expensive O(N^2) work in
+        # this function, so it's the highest-value place to parallelize.
+        Threads.@threads for j in 1:N
+            @inbounds for i in 1:N
+                ΔΩ[i,j] = Ω[i] - Ω[j]
+            end
         end
         # Compute off-diagonal elements first (diagonals will be Inf)
-        @inbounds for j in 1:N, i ∈ 1:N
-            if i ≠ j
-                C[i,j] = Ω_ξ[i] / ΔΩ[i,j]
+        Threads.@threads for j in 1:N
+            @inbounds for i in 1:N
+                if i ≠ j
+                    C[i,j] = Ω_ξ[i] / ΔΩ[i,j]
+                end
             end
-        end    
+        end
         # Fill diagonal
         @inbounds for i in 1:N
             C[i,i] = 0.5 * Ω_ξξ[i] / Ω_ξ[i]
         end
 
     else #
-        C = zeros(Complex, N, N)    # C = A + iB
-        for ξ_p in 1:N
+        # Reuse the preallocated C buffer (previously reallocated with zeros(Complex,N,N) every call)
+        # Threaded over ξ_p: each thread only ever writes to its own column
+        # of C, so there's no data race between threads.
+        Threads.@threads for ξ_p in 1:N
             for ξ in 1:N
                 C[ξ,ξ_p] = -conj((H * Ω_ξ[ξ] / conj(Ω[ξ_p])) / (Ω[ξ] * (Ω[ξ] - H / conj(Ω[ξ_p]))))
                 if ξ_p == ξ     
@@ -293,7 +303,7 @@ function ABMatrices!(A,B,C,Cinter,ΔΩ,Ω::AbstractVector{<:Number}, Ω_ξ::Abst
         end
     end
     
-    ℵ = lu(Cinter)
+    ℵ = lu!(Cinter)
 
     return ℵ
 end
@@ -326,21 +336,22 @@ function NormalInversion(ϕ::AbstractVector{<:Real}, A::AbstractMatrix{<:Real}, 
     return ϕ_ξ, ϕ_ν
 end
 
-function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν::Vector{Float64},b::Vector{Float64}, ϕ::AbstractVector{<:Real}, A, ℵ,N::Int,c1,c2)
+function NormalInversion!(ws::SolverWorkspace, ϕ_ξ::Vector{Float64}, ϕ_ξξ::Vector{Float64}, ϕ_ν::Vector{Float64}, ϕ::AbstractVector{<:Real}, ℵ)
     #= 
     NormalInversion is a function that implements the matrix inversion method from Dold eq 4.13 in order to compute the normal derivative of the scalar velocity potential. The method is based on using a conformal mapping and the Cauchy integral theorem for solving the Laplacian equation. The subtlety lies in the issue that, for solely surface particles at b=0, there is no Lagrangian normal derivative as there are no particles above or below. For efficiency, due to the need of the tangential derivative, it is first computed and returned along with the normal derivative here.
         
     The implementation here is mathematically simplified from Dold's formula to take the form of an Ax = b matrix equation, and is thus quite compact and optimized.
 
     Input:
+    ws - SolverWorkspace holding the preallocated A and b buffers plus N, c1, c2 for this run
     ϕ - real vector of scalar velocity potential
-    A - matrix built from ABMatrices
-    ℵ - 
+    ℵ - factorization built by ABMatrices!
 
     Output:
     ϕ_ξ - real vector of tangential partial derivative of with respect to particle label ξ
     ϕ_ν - real vector of normal partial derivative scaled by
     =#
+    (; A, b, N, c1, c2) = ws
 
     DDI1!(ϕ_ξ,ϕ,0.0,N,c1)
     DDI2!(ϕ_ξξ,ϕ,0.0,N,c2)
@@ -358,11 +369,8 @@ function NormalInversion!(ϕ_ξ::Vector{Float64},ϕ_ξξ::Vector{Float64}, ϕ_ν
         b[i] = acc - ϕ_ξξ[i]
     end
 
-
-    # Important: here the * is not element wise to get the sum A*ϕ_ξ for each one-element row entry of the resulting column vector, while the difference is element wise to subtract ϕ_ξξ[i] from each of the summed entries.
-    b = ((A * ϕ_ξ) .- ϕ_ξξ)
-
-    # Solve ℵ ϕ_ν = b 
+    # Solve ℵ ϕ_ν = b (b already computed in-place above; previously this was
+    # recomputed via a fresh, allocating A * ϕ_ξ before solving)
     ldiv!(ϕ_ν,ℵ,b)
 end
 
@@ -442,14 +450,15 @@ function TimeDerivatives(R_ξ::AbstractVector{<:Complex}, ϕ_x::AbstractVector{<
     return DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3
 end
 
-function TimeDerivatives!(DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
-    X_ξ,Y_ξ,ϕ_x,ϕ_y,A,b,ℵ,Y,N,c1,c2,
-    ϕ_t,ϕ_tξ,ϕ_tξξ,ϕ_tν,u_t,u_tξ,v_t,v_tξ,u_ξ,v_ξ,u_x,v_x,u_tx,v_tx,u_xξ,v_xξ,u_xx,v_xx,
-    ϕ_tt,ϕ_ttξ,ϕ_ttξξ,ϕ_ttν,u_tt,v_tt,inverseds2,g)
+function TimeDerivatives!(ws::SolverWorkspace, ℵ, ϕ_x, ϕ_y, Y,
+    DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3)
     #=
     TimeDerivatives is a function that computes up to the third Lagrangian time derivative
     of both the positions (x,y) and velocity potential ϕ
     =#
+    (; X_ξ, Y_ξ, A, N, c1, c2, inverseds2, g,
+       ϕ_t, ϕ_tξ, ϕ_tξξ, ϕ_tν, u_t, u_tξ, v_t, v_tξ, u_ξ, v_ξ, u_x, v_x, u_tx, v_tx, u_xξ, v_xξ, u_xx, v_xx,
+       ϕ_tt, ϕ_ttξ, ϕ_ttξξ, ϕ_ttν, u_tt, v_tt) = ws
 
     # First derivatives of x,y just found from ϕ_x, ϕ_y which we already have
     # Evolution of ϕ comes from Bernoulli's equation at the free surface
@@ -459,9 +468,9 @@ function TimeDerivatives!(DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
     end
 
     # Get Eulerian time derivatives of velocities 
-    NormalInversion!(ϕ_tξ,ϕ_tξξ, ϕ_tν,b,ϕ_t, A, ℵ,N,c1,c2)
+    NormalInversion!(ws, ϕ_tξ, ϕ_tξξ, ϕ_tν, ϕ_t, ℵ)
     # Computes ut, vt, Eulerian 
-    RealPhi!(u_t,v_t,X_ξ,Y_ξ,inverseds2,ϕ_tξ,ϕ_tν,N)
+    RealPhi!(ws, u_t, v_t, ϕ_tξ, ϕ_tν)
 
     # From this, can compute up to third time derivatives 
     DDI1!(u_ξ,ϕ_x,0.0,N,c1)
@@ -492,9 +501,9 @@ function TimeDerivatives!(DϕDt,DuDt,DvDt,D2ϕDt2,D2uDt2,D2vDt2,D3ϕDt3,
     end
 
     # One last inversion to get second Eulerian time derivatives of velocities
-    NormalInversion!(ϕ_ttξ,ϕ_ttξξ, ϕ_ttν,b,ϕ_tt, A, ℵ,N,c1,c2)
+    NormalInversion!(ws, ϕ_ttξ, ϕ_ttξξ, ϕ_ttν, ϕ_tt, ℵ)
     # Computes ut, vt, Eulerian 
-    RealPhi!(u_tt,v_tt,X_ξ,Y_ξ,inverseds2,ϕ_ttξ,ϕ_ttν,N)
+    RealPhi!(ws, u_tt, v_tt, ϕ_ttξ, ϕ_ttν)
     
     # Compute third order time derivatives
     @inbounds for i ∈ 1:N 
@@ -657,12 +666,12 @@ function RealPhi(R_ξ::AbstractVector{<:Complex}, ϕ_ξ::AbstractVector{<:Real},
     return ϕ_x, ϕ_y
 end
 
-function RealPhi!(ϕ_x,ϕ_y,X_ξ,Y_ξ,inverseds2, ϕ_ξ::AbstractVector{<:Real}, ϕ_ν::AbstractVector{<:Real},N)
+function RealPhi!(ws::SolverWorkspace, ϕ_x, ϕ_y, ϕ_ξ::AbstractVector{<:Real}, ϕ_ν::AbstractVector{<:Real})
     #=
     RealPhi is a small helper function that is used to transform back from the conformally mapped variables to the real plane when timestepping the real X, Y, ϕ arrays. Specically, the relation formula between the complex ϕ_x + iϕ_y and the ξ and ν partial derivatives is exploited.
 
     Input:
-    R_ξ - complex vector representation of position vectors X + iY
+    ws - SolverWorkspace holding the preallocated X_ξ, Y_ξ, inverseds2 buffers plus N for this run
     ϕ_ξ - real vector of partial derivatives of ϕ with respect to label ξ
     ϕ_ν - real vector of normal partial derivatives of ϕ scaled by 
 
@@ -670,6 +679,7 @@ function RealPhi!(ϕ_x,ϕ_y,X_ξ,Y_ξ,inverseds2, ϕ_ξ::AbstractVector{<:Real},
     ϕ_x - real vector of U velocity for particles on the surface
     ϕ_y - real vector of V velocity for particles on the surface
     =#
+    (; X_ξ, Y_ξ, inverseds2, N) = ws
 
     @inbounds for i ∈ 1:N
         ϕ_x[i] = (ϕ_ξ[i]*X_ξ[i] - ϕ_ν[i]*Y_ξ[i])*inverseds2[i]
@@ -754,6 +764,49 @@ function smooth!(Ω_sm_temp::Vector{Float64},Ω::Vector{Float64},offset::Float64
     return Ω
 end
 
+
+function maxRoughness(x::Vector{Float64}, y::Vector{Float64}, f::Vector{Float64}, N::Int, c::Vector{Float64})
+    #=
+    Estimates the "roughness" of the current solution the way Dold's `rough`
+    routine does: applies an 11-point smoothing formula to each of x, y, f
+    (here the 2nd/2nd/3rd Lagrangian time derivatives) WITHOUT modifying
+    them, combines the three per-point corrections as sqrt(gx^2+gy^2+gf^2),
+    and returns the largest such value over all points - a proxy for how
+    much high-frequency noise/instability is present. This always uses the
+    11-point (m=11) formula regardless of what stencil width the actual
+    profile/potential smoothing uses, matching Dold's fixed choice of m=11
+    for this diagnostic. x, y, f are all periodic with no offset (unlike X),
+    so no wraparound offset term is needed here.
+
+    Input:
+    x, y, f - the fields to test for roughness (D2uDt2, D2vDt2, D3ϕDt3)
+    N - number of particles
+    c - 11-point (6-entry) roughness stencil coefficients
+
+    Output:
+    erm - the largest combined roughness found at any point
+    =#
+    erm = 0.0
+    @inbounds for i ∈ 6:(N-5)
+        gx = c[1]*x[i] + c[2]*(x[i+1]+x[i-1]) + c[3]*(x[i+2]+x[i-2]) + c[4]*(x[i+3]+x[i-3]) + c[5]*(x[i+4]+x[i-4]) + c[6]*(x[i+5]+x[i-5])
+        gy = c[1]*y[i] + c[2]*(y[i+1]+y[i-1]) + c[3]*(y[i+2]+y[i-2]) + c[4]*(y[i+3]+y[i-3]) + c[5]*(y[i+4]+y[i-4]) + c[6]*(y[i+5]+y[i-5])
+        gf = c[1]*f[i] + c[2]*(f[i+1]+f[i-1]) + c[3]*(f[i+2]+f[i-2]) + c[4]*(f[i+3]+f[i-3]) + c[5]*(f[i+4]+f[i-4]) + c[6]*(f[i+5]+f[i-5])
+        erm = max(erm, sqrt(gx^2 + gy^2 + gf^2))
+    end
+    @inbounds for i ∈ 1:5
+        gx = c[1]*x[i] + c[2]*(x[i+1]+x[mod1(i-1,N)]) + c[3]*(x[i+2]+x[mod1(i-2,N)]) + c[4]*(x[i+3]+x[mod1(i-3,N)]) + c[5]*(x[i+4]+x[mod1(i-4,N)]) + c[6]*(x[i+5]+x[mod1(i-5,N)])
+        gy = c[1]*y[i] + c[2]*(y[i+1]+y[mod1(i-1,N)]) + c[3]*(y[i+2]+y[mod1(i-2,N)]) + c[4]*(y[i+3]+y[mod1(i-3,N)]) + c[5]*(y[i+4]+y[mod1(i-4,N)]) + c[6]*(y[i+5]+y[mod1(i-5,N)])
+        gf = c[1]*f[i] + c[2]*(f[i+1]+f[mod1(i-1,N)]) + c[3]*(f[i+2]+f[mod1(i-2,N)]) + c[4]*(f[i+3]+f[mod1(i-3,N)]) + c[5]*(f[i+4]+f[mod1(i-4,N)]) + c[6]*(f[i+5]+f[mod1(i-5,N)])
+        erm = max(erm, sqrt(gx^2 + gy^2 + gf^2))
+    end
+    @inbounds for i ∈ (N-4):N
+        gx = c[1]*x[i] + c[2]*(x[mod1(i+1,N)]+x[i-1]) + c[3]*(x[mod1(i+2,N)]+x[i-2]) + c[4]*(x[mod1(i+3,N)]+x[i-3]) + c[5]*(x[mod1(i+4,N)]+x[i-4]) + c[6]*(x[mod1(i+5,N)]+x[i-5])
+        gy = c[1]*y[i] + c[2]*(y[mod1(i+1,N)]+y[i-1]) + c[3]*(y[mod1(i+2,N)]+y[i-2]) + c[4]*(y[mod1(i+3,N)]+y[i-3]) + c[5]*(y[mod1(i+4,N)]+y[i-4]) + c[6]*(y[mod1(i+5,N)]+y[i-5])
+        gf = c[1]*f[i] + c[2]*(f[mod1(i+1,N)]+f[i-1]) + c[3]*(f[mod1(i+2,N)]+f[i-2]) + c[4]*(f[mod1(i+3,N)]+f[i-3]) + c[5]*(f[mod1(i+4,N)]+f[i-4]) + c[6]*(f[mod1(i+5,N)]+f[i-5])
+        erm = max(erm, sqrt(gx^2 + gy^2 + gf^2))
+    end
+    return erm
+end
 
 
 function simpsons_rule_periodic(X, Y)

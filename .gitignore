@@ -1,5 +1,5 @@
 data/
 plots/
 .DS_Store
-src/dold_files/
 statprof/
+Manifest.toml
