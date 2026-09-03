@@ -44,7 +44,7 @@ struct SimulationParameters
                               # stay stable and want to take larger steps.
 end
 
-function SimulationParameters(L,h,dt,T;errortol=1e-6,smoothing=true,g=9.81,stabilityFactor=0.6)
+function SimulationParameters(L,h,dt,T;errortol=1e-4,smoothing=true,g=9.81,stabilityFactor=0.6)
         # Convert variables to explicit types 
         L = Float64(L)
         h = Float64(h)
@@ -77,6 +77,12 @@ struct SolverWorkspace
     roughnessCoefficients::Vector{Float64} # fixed 11-point (m=11) formula used only for
                                             # the roughness diagnostic, independent of
                                             # whatever stencil smoothCoefficients uses
+    sizedtDenoiseCoefficients::Vector{Float64} # Dold's sizedt-only m=5 denoising formula
+                                                # (narrower/gentler than smoothCoefficients
+                                                # or roughnessCoefficients)
+    spreaddCoefficients::Vector{Float64}       # Dold's fixed 11-point "spreadd" local
+                                                # averaging formula (all-positive, unlike
+                                                # the denoising kernels above)
 
     # --- Conformally mapped geometry (complex) ---
     Ω::Vector{ComplexF64}
@@ -129,6 +135,12 @@ struct SolverWorkspace
 
     # --- 11-point smoothing scratch ---
     Ω_sm_temp::Vector{Float64}
+
+    # --- sizedt (Δt-sizing) scratch: reused across the x/y/ϕ derivative
+    # fields in turn, since only the final scalar (windowedMax) result for
+    # each is needed, not all three fields' smoothed versions at once ---
+    sizedt_temp1::Vector{Float64} # holds the denoised field
+    sizedt_temp2::Vector{Float64} # holds the denoised-then-spread field
 end
 
 function SolverWorkspace(N::Int, H::Real, g::Real)
@@ -141,9 +153,16 @@ function SolverWorkspace(N::Int, H::Real, g::Real)
     # Dold's `rough` diagnostic always uses an 11-point formula (m=11),
     # regardless of what m the profile/potential smoothing above uses.
     roughnessCoefficients = [252.0, -210.0, 120.0, -45.0, 10.0, -1.0] ./ 1024.0
+    # Dold's sizedt calls entry smooth with m=5 specifically (not whatever m
+    # smoothCoefficients/roughnessCoefficients use) - smcalc's m=5 formula.
+    sizedtDenoiseCoefficients = [6.0, -4.0, 1.0] ./ 16.0
+    # entry spreadd is not parameterized by m at all - always this fixed
+    # 11-point, all-positive-coefficient formula.
+    spreaddCoefficients = [252.0, 210.0, 120.0, 45.0, 10.0, 1.0] ./ 1024.0
 
     return SolverWorkspace(
         N, Float64(H), Float64(g), c1, c2, smoothCoefficients, roughnessCoefficients,
+        sizedtDenoiseCoefficients, spreaddCoefficients,
         # Ω, Ω_ξ, Ω_ξξ
         z(), z(), z(),
         # X_ξ, Y_ξ, inverseds2
@@ -171,5 +190,7 @@ function SolverWorkspace(N::Int, H::Real, g::Real)
         r(), r(),
         # Ω_sm_temp
         r(),
+        # sizedt_temp1, sizedt_temp2
+        r(), r(),
     )
 end

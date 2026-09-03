@@ -248,8 +248,14 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             # the save interval, applied below via the landing clip instead
             # (which bounds Δt by at most dt̃val anyway, since it never lets
             # a step overshoot the next save point).
-            thirdOrderMax = max(maximum(abs, D2uDt2),maximum(abs, D2vDt2),maximum(abs, D3ϕDt3))
-            Δt = (errortolval*factorial(3)/thirdOrderMax)^(1/3)
+            #
+            # dm here matches Dold's "sizedt" magnitude, not a raw pointwise
+            # max of the derivative fields - see sizedtMagnitude's docstring
+            # for why that distinction matters once there's no floor on Δt
+            # (a raw max chases individual noisy/sharp grid points down;
+            # Dold's denoised/locally-averaged/combined measure doesn't).
+            dm = sizedtMagnitude(ws, D2uDt2, D2vDt2, D3ϕDt3)
+            Δt = (errortolval*factorial(3)/dm)^(1/3)
 
             # Numerical-stability threshold on the timestep, ported from Dold's
             # "timstp"/strong-instability check (Dold 1992, J. Comp. Phys. 103,

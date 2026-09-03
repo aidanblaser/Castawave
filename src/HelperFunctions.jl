@@ -807,6 +807,147 @@ function maxRoughness(x::Vector{Float64}, y::Vector{Float64}, f::Vector{Float64}
 end
 
 
+function sizedtDenoise!(out::Vector{Float64}, w::Vector{Float64}, N::Int, c::Vector{Float64})
+    #=
+    Ported from Dold's `entry smooth(m,f,n,pf)` as called from `sizedt` with
+    m=5 (a single pass, since Dold's internal loop runs m÷4 = 1 time for
+    m=5): a gentle 5-point denoising of a derivative field, used only to
+    keep a single noisy/high-wavenumber grid point from dominating the
+    timestep-sizing estimate in sizedtMagnitude below. This is intentionally
+    narrower/gentler than the surface's own per-step smoothing
+    (smoothCoefficients, m=15) or the roughness diagnostic
+    (roughnessCoefficients, m=11) - Dold uses a separate, fixed m=5
+    specifically here (smcalc's m=5 formula, subtracted from the original
+    field). x, y, f are all periodic with no offset (unlike X), so no
+    wraparound offset term is needed.
+
+    Input:
+    out - output buffer (length N), safe to alias with a buffer other than w
+    w   - the raw derivative field to denoise
+    N   - number of particles
+    c   - 3-entry m=5 denoising stencil coefficients ([6,-4,1]/16)
+    =#
+    @inbounds for i ∈ 3:(N-2)
+        δ = c[1]*w[i] + c[2]*(w[i+1]+w[i-1]) + c[3]*(w[i+2]+w[i-2])
+        out[i] = w[i] - δ
+    end
+    @inbounds for i ∈ 1:2
+        δ = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)])
+        out[i] = w[i] - δ
+    end
+    @inbounds for i ∈ (N-1):N
+        δ = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)])
+        out[i] = w[i] - δ
+    end
+    return out
+end
+
+function spreadd!(out::Vector{Float64}, w::Vector{Float64}, N::Int, c::Vector{Float64})
+    #=
+    Ported from Dold's `entry spreadd`: a fixed 11-point local weighted
+    average - all-positive coefficients, unlike the denoising/smoothing
+    kernels elsewhere in this file which alternate sign - that spreads a
+    value's influence across its neighbors. Used in sizedtMagnitude right
+    after sizedtDenoise! above, so that a genuinely large but sharply
+    localized derivative doesn't by itself set the timestep: its
+    neighborhood gets averaged in too. Unlike smooth/rough, entry spreadd
+    isn't parameterized by m at all in Dold's code - it's always this fixed
+    width.
+
+    Input:
+    out - output buffer (length N), safe to alias with a buffer other than w
+    w   - the field to spread (typically the output of sizedtDenoise!)
+    N   - number of particles
+    c   - 6-entry spreadd stencil coefficients ([252,210,120,45,10,1]/1024)
+    =#
+    @inbounds for i ∈ 6:(N-5)
+        out[i] = c[1]*w[i] + c[2]*(w[i+1]+w[i-1]) + c[3]*(w[i+2]+w[i-2]) +
+                 c[4]*(w[i+3]+w[i-3]) + c[5]*(w[i+4]+w[i-4]) + c[6]*(w[i+5]+w[i-5])
+    end
+    @inbounds for i ∈ 1:5
+        out[i] = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)]) +
+                 c[4]*(w[mod1(i+3,N)]+w[mod1(i-3,N)]) + c[5]*(w[mod1(i+4,N)]+w[mod1(i-4,N)]) + c[6]*(w[mod1(i+5,N)]+w[mod1(i-5,N)])
+    end
+    @inbounds for i ∈ (N-4):N
+        out[i] = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)]) +
+                 c[4]*(w[mod1(i+3,N)]+w[mod1(i-3,N)]) + c[5]*(w[mod1(i+4,N)]+w[mod1(i-4,N)]) + c[6]*(w[mod1(i+5,N)]+w[mod1(i-5,N)])
+    end
+    return out
+end
+
+function windowedMax(w::Vector{Float64}, N::Int)
+    #=
+    Ported from Dold's `entry mabsm`: rather than the single-point max
+    magnitude (`maxabs`), this takes the max over i of a local 3-point
+    weighted combination |2w(i)+w(i+1)+w(i-1)|/4 - one further, minimal
+    layer of local averaging on top of the denoise+spreadd passes above,
+    so the final Δt-sizing magnitude reflects a small neighborhood rather
+    than any single point.
+    =#
+    wm = 0.0
+    @inbounds for i ∈ 1:N
+        ip = i == N ? 1 : i+1
+        im = i == 1 ? N : i-1
+        tp = abs(2*w[i] + w[ip] + w[im])
+        wm = max(wm, tp)
+    end
+    return 0.25*wm
+end
+
+function sizedtMagnitude(ws::SolverWorkspace, xdv::Vector{Float64}, ydv::Vector{Float64}, fdv::Vector{Float64})
+    #=
+    Ported from Dold's `entry sizedt`: the magnitude used to size the
+    timestep from a given order's Taylor terms is NOT the raw pointwise max
+    of the derivative fields (D2uDt2, D2vDt2, D3ϕDt3) - each field is first
+    denoised (sizedtDenoise!, Dold's m=5 "smooth") and locally averaged
+    (spreadd!), then reduced to a single scalar via a windowed max
+    (windowedMax, Dold's "mabsm") rather than a plain maximum. The three
+    fields' resulting scalars (dxm, dym, dfm) are then combined as
+    sqrt(dxm^2+dym^2+dfm^2) - a Euclidean norm across x/y/ϕ, not a max
+    across them.
+
+    Both of these make the returned magnitude meaningfully less sensitive
+    to a single sharp or noisy grid point than a raw max would be - and
+    therefore Δt = (errortol*3!/dm)^(1/3) meaningfully less prone to being
+    yanked down by one such point. This matters in particular once there's
+    no floor on Δt: an unsmoothed, ungrouped raw max chases every local
+    spike (residual sawtooth noise, or genuine sharp curvature approaching
+    breaking) individually, where Dold's smoothed/windowed/combined measure
+    does not.
+
+    Uses ws.sizedt_temp1/sizedt_temp2 as scratch, so each of the three
+    fields is processed in turn rather than simultaneously.
+
+    Input:
+    ws              - SolverWorkspace (for N, the sizedt coefficients, and
+                       scratch buffers)
+    xdv, ydv, fdv   - the three Taylor-term derivative fields (order
+                       matching whatever sizedt(nd,...) call this stands in
+                       for - e.g. D2uDt2, D2vDt2, D3ϕDt3 for nd=3)
+
+    Output:
+    dm - the combined Δt-sizing magnitude
+    =#
+    N = ws.N
+    dc = ws.sizedtDenoiseCoefficients
+    sc = ws.spreaddCoefficients
+
+    sizedtDenoise!(ws.sizedt_temp1, xdv, N, dc)
+    spreadd!(ws.sizedt_temp2, ws.sizedt_temp1, N, sc)
+    dxm = windowedMax(ws.sizedt_temp2, N)
+
+    sizedtDenoise!(ws.sizedt_temp1, ydv, N, dc)
+    spreadd!(ws.sizedt_temp2, ws.sizedt_temp1, N, sc)
+    dym = windowedMax(ws.sizedt_temp2, N)
+
+    sizedtDenoise!(ws.sizedt_temp1, fdv, N, dc)
+    spreadd!(ws.sizedt_temp2, ws.sizedt_temp1, N, sc)
+    dfm = windowedMax(ws.sizedt_temp2, N)
+
+    return sqrt(dxm^2 + dym^2 + dfm^2)
+end
+
+
 function simpsons_rule_periodic(X, Y)
     n = length(X)
     h = diff(X)
