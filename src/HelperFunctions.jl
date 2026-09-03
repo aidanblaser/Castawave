@@ -2,9 +2,7 @@
 This file contains all the helper functions called by the main functions to run Castawave. This includes functions for mathematical computations, such as the conformal mapping or timestepping scheme, and functions for additional tasks such as output writing and visualization.
 =#
 
-using DrWatson
-@quickactivate "Castawave"
-using LinearAlgebra 
+using LinearAlgebra
 using Statistics
 using Polynomials
 using Base.Threads

@@ -6,19 +6,20 @@ Castawave package, build a small analytic initial wave, run it, and take
 a quick look at the result. Start here if you're new to this codebase, or
 just want to sanity-check that your Julia environment is set up correctly.
 
-Run it either as a script:
-    julia --project=. scripts/QuickStart.jl
+This script lives in its own nested environment (scripts/Project.toml),
+which already has Castawave set up as a dev dependency plus Plots for the
+visualization at the end. The first time you use it, from the repo root:
+
+    julia --project=scripts -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+
+After that, run it either as a script:
+    julia --project=scripts scripts/QuickStart.jl
 or paste it into a REPL:
-    julia --project=.
+    julia --project=scripts
     julia> include("scripts/QuickStart.jl")
 =#
 
-using DrWatson
-@quickactivate "Castawave"
-
-include(projectdir()*"/src/Castawave.jl")
-using .Castawave
-
+using Castawave
 using Plots
 
 # ---------------------------------------------------------------------

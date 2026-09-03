@@ -6,13 +6,11 @@ Package dependencies as well as the other two files needed to run the solver are
 Note that, during initialization, particle labels are taken as the indices of the X, Y, and ϕ vectors, and are as such evenly spaced no matter the positional values.
 =#
 
-using DrWatson
-@quickactivate "Castawave"
 using LinearAlgebra
 
-include(projectdir()*"/src/Constants.jl")
-include(projectdir()*"/src/Types.jl")
-include(projectdir()*"/src/HelperFunctions.jl")
+include("Constants.jl")
+include("Types.jl")
+include("HelperFunctions.jl")
 
 #= TODO 
 - Better implement time stepping so it lands on intervals of dt (even if it takes steps between)

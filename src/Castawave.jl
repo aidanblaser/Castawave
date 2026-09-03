@@ -5,12 +5,13 @@ from Dold (1992, J. Comp. Phys. 103, 90-115).
 
 Load it with:
 
-    using DrWatson
-    @quickactivate "Castawave"
-    include(projectdir()*"/src/Castawave.jl")
-    using .Castawave
+    using Pkg
+    Pkg.develop(path="/path/to/Castawave")   # once, to register it locally
+    using Castawave
 
-See scripts/QuickStart.jl for a minimal worked example of exactly that.
+See scripts/QuickStart.jl for a minimal worked example of exactly that
+(it uses its own nested environment, scripts/Project.toml, which already
+has Castawave set up as a dev dependency).
 
 ClamondIC.jl and DoldFcns.jl (an initial-condition generator and a
 Dold-I/O-format-compatible validation driver, respectively) have been
@@ -20,9 +21,6 @@ history if ever needed again.
 =#
 
 module Castawave
-
-using DrWatson
-@quickactivate "Castawave"
 
 # MainSolver.jl's own header already includes Constants.jl, Types.jl and
 # HelperFunctions.jl (in that order - Types.jl has to precede
