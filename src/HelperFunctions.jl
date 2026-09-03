@@ -763,188 +763,199 @@ function smooth!(Ω_sm_temp::Vector{Float64},Ω::Vector{Float64},offset::Float64
 end
 
 
-function maxRoughness(x::Vector{Float64}, y::Vector{Float64}, f::Vector{Float64}, N::Int, c::Vector{Float64})
+function roughnessVector!(r::Vector{Float64}, x::Vector{Float64}, y::Vector{Float64}, f::Vector{Float64}, N::Int, c::Vector{Float64})
     #=
     Estimates the "roughness" of the current solution the way Dold's `rough`
-    routine does: applies an 11-point smoothing formula to each of x, y, f
-    (here the 2nd/2nd/3rd Lagrangian time derivatives) WITHOUT modifying
-    them, combines the three per-point corrections as sqrt(gx^2+gy^2+gf^2),
-    and returns the largest such value over all points - a proxy for how
-    much high-frequency noise/instability is present. This always uses the
-    11-point (m=11) formula regardless of what stencil width the actual
-    profile/potential smoothing uses, matching Dold's fixed choice of m=11
-    for this diagnostic. x, y, f are all periodic with no offset (unlike X),
-    so no wraparound offset term is needed here.
+    routine does: applies an 11-point smoothing-residual formula to each of
+    x, y, f (here the 2nd/2nd/3rd Lagrangian time derivatives) WITHOUT
+    modifying them, combines the three per-point corrections as
+    sqrt(gx^2+gy^2+gf^2), and stores the result at every point in r (not
+    just the maximum). This per-point vector is what lets the smoothing
+    below be applied only where it's actually needed (Dold's "smthwd"),
+    rather than uniformly across the whole surface. Also returns the
+    largest such value over all points (erm), same as the old maxRoughness.
+    This always uses the 11-point (m=11) formula regardless of what stencil
+    width the actual profile/potential smoothing uses, matching Dold's
+    fixed choice of m=11 for this diagnostic. x, y, f are all periodic with
+    no offset (unlike X), so no wraparound offset term is needed here.
+
+    Used to gate the conditional surface smoothing in runSim, and (via r)
+    to weight it spatially - not for timestep control or a hard blow-up
+    stop (see runSim's predictor/corrector error control), so it needs no
+    unit rescaling: erm/r are only ever compared against errortol or their
+    own maximum, both computed self-consistently in this solver's own
+    units.
 
     Input:
+    r - output buffer (length N) to receive the per-point roughness
     x, y, f - the fields to test for roughness (D2uDt2, D2vDt2, D3ϕDt3)
     N - number of particles
     c - 11-point (6-entry) roughness stencil coefficients
 
     Output:
-    erm - the largest combined roughness found at any point
+    erm - the largest combined roughness found at any point (also the
+          maximum of the r buffer, which is filled in place)
     =#
     erm = 0.0
     @inbounds for i ∈ 6:(N-5)
         gx = c[1]*x[i] + c[2]*(x[i+1]+x[i-1]) + c[3]*(x[i+2]+x[i-2]) + c[4]*(x[i+3]+x[i-3]) + c[5]*(x[i+4]+x[i-4]) + c[6]*(x[i+5]+x[i-5])
         gy = c[1]*y[i] + c[2]*(y[i+1]+y[i-1]) + c[3]*(y[i+2]+y[i-2]) + c[4]*(y[i+3]+y[i-3]) + c[5]*(y[i+4]+y[i-4]) + c[6]*(y[i+5]+y[i-5])
         gf = c[1]*f[i] + c[2]*(f[i+1]+f[i-1]) + c[3]*(f[i+2]+f[i-2]) + c[4]*(f[i+3]+f[i-3]) + c[5]*(f[i+4]+f[i-4]) + c[6]*(f[i+5]+f[i-5])
-        erm = max(erm, sqrt(gx^2 + gy^2 + gf^2))
+        r[i] = sqrt(gx^2 + gy^2 + gf^2)
+        erm = max(erm, r[i])
     end
     @inbounds for i ∈ 1:5
         gx = c[1]*x[i] + c[2]*(x[i+1]+x[mod1(i-1,N)]) + c[3]*(x[i+2]+x[mod1(i-2,N)]) + c[4]*(x[i+3]+x[mod1(i-3,N)]) + c[5]*(x[i+4]+x[mod1(i-4,N)]) + c[6]*(x[i+5]+x[mod1(i-5,N)])
         gy = c[1]*y[i] + c[2]*(y[i+1]+y[mod1(i-1,N)]) + c[3]*(y[i+2]+y[mod1(i-2,N)]) + c[4]*(y[i+3]+y[mod1(i-3,N)]) + c[5]*(y[i+4]+y[mod1(i-4,N)]) + c[6]*(y[i+5]+y[mod1(i-5,N)])
         gf = c[1]*f[i] + c[2]*(f[i+1]+f[mod1(i-1,N)]) + c[3]*(f[i+2]+f[mod1(i-2,N)]) + c[4]*(f[i+3]+f[mod1(i-3,N)]) + c[5]*(f[i+4]+f[mod1(i-4,N)]) + c[6]*(f[i+5]+f[mod1(i-5,N)])
-        erm = max(erm, sqrt(gx^2 + gy^2 + gf^2))
+        r[i] = sqrt(gx^2 + gy^2 + gf^2)
+        erm = max(erm, r[i])
     end
     @inbounds for i ∈ (N-4):N
         gx = c[1]*x[i] + c[2]*(x[mod1(i+1,N)]+x[i-1]) + c[3]*(x[mod1(i+2,N)]+x[i-2]) + c[4]*(x[mod1(i+3,N)]+x[i-3]) + c[5]*(x[mod1(i+4,N)]+x[i-4]) + c[6]*(x[mod1(i+5,N)]+x[i-5])
         gy = c[1]*y[i] + c[2]*(y[mod1(i+1,N)]+y[i-1]) + c[3]*(y[mod1(i+2,N)]+y[i-2]) + c[4]*(y[mod1(i+3,N)]+y[i-3]) + c[5]*(y[mod1(i+4,N)]+y[i-4]) + c[6]*(y[mod1(i+5,N)]+y[i-5])
         gf = c[1]*f[i] + c[2]*(f[mod1(i+1,N)]+f[i-1]) + c[3]*(f[mod1(i+2,N)]+f[i-2]) + c[4]*(f[mod1(i+3,N)]+f[i-3]) + c[5]*(f[mod1(i+4,N)]+f[i-4]) + c[6]*(f[mod1(i+5,N)]+f[i-5])
-        erm = max(erm, sqrt(gx^2 + gy^2 + gf^2))
+        r[i] = sqrt(gx^2 + gy^2 + gf^2)
+        erm = max(erm, r[i])
     end
     return erm
 end
 
 
-function sizedtDenoise!(out::Vector{Float64}, w::Vector{Float64}, N::Int, c::Vector{Float64})
-    #=
-    Ported from Dold's `entry smooth(m,f,n,pf)` as called from `sizedt` with
-    m=5 (a single pass, since Dold's internal loop runs m÷4 = 1 time for
-    m=5): a gentle 5-point denoising of a derivative field, used only to
-    keep a single noisy/high-wavenumber grid point from dominating the
-    timestep-sizing estimate in sizedtMagnitude below. This is intentionally
-    narrower/gentler than the surface's own per-step smoothing
-    (smoothCoefficients, m=15) or the roughness diagnostic
-    (roughnessCoefficients, m=11) - Dold uses a separate, fixed m=5
-    specifically here (smcalc's m=5 formula, subtracted from the original
-    field). x, y, f are all periodic with no offset (unlike X), so no
-    wraparound offset term is needed.
-
-    Input:
-    out - output buffer (length N), safe to alias with a buffer other than w
-    w   - the raw derivative field to denoise
-    N   - number of particles
-    c   - 3-entry m=5 denoising stencil coefficients ([6,-4,1]/16)
-    =#
-    @inbounds for i ∈ 3:(N-2)
-        δ = c[1]*w[i] + c[2]*(w[i+1]+w[i-1]) + c[3]*(w[i+2]+w[i-2])
-        out[i] = w[i] - δ
-    end
-    @inbounds for i ∈ 1:2
-        δ = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)])
-        out[i] = w[i] - δ
-    end
-    @inbounds for i ∈ (N-1):N
-        δ = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)])
-        out[i] = w[i] - δ
-    end
-    return out
-end
-
 function spreadd!(out::Vector{Float64}, w::Vector{Float64}, N::Int, c::Vector{Float64})
     #=
-    Ported from Dold's `entry spreadd`: a fixed 11-point local weighted
-    average - all-positive coefficients, unlike the denoising/smoothing
-    kernels elsewhere in this file which alternate sign - that spreads a
-    value's influence across its neighbors. Used in sizedtMagnitude right
-    after sizedtDenoise! above, so that a genuinely large but sharply
-    localized derivative doesn't by itself set the timestep: its
-    neighborhood gets averaged in too. Unlike smooth/rough, entry spreadd
-    isn't parameterized by m at all in Dold's code - it's always this fixed
-    width.
+    Dold's `spreadd`: an 11-point (m=11) PLAIN weighted average (all-positive
+    coefficients, unlike the signed roughness-residual stencil in
+    roughnessVector! above) used to spatially spread/smooth a per-point
+    weight array so it doesn't have sharp jumps between neighboring points.
+    w and out are periodic with no offset (this is only ever applied to the
+    roughness-weight array below).
 
     Input:
-    out - output buffer (length N), safe to alias with a buffer other than w
-    w   - the field to spread (typically the output of sizedtDenoise!)
-    N   - number of particles
-    c   - 6-entry spreadd stencil coefficients ([252,210,120,45,10,1]/1024)
+    out - output buffer (length N)
+    w - the array to spread (already clipped to [0,1])
+    N - number of particles
+    c - 11-point (6-entry) all-positive spreading stencil coefficients
+
+    Output:
+    out, filled in place with the spread values
     =#
     @inbounds for i ∈ 6:(N-5)
-        out[i] = c[1]*w[i] + c[2]*(w[i+1]+w[i-1]) + c[3]*(w[i+2]+w[i-2]) +
-                 c[4]*(w[i+3]+w[i-3]) + c[5]*(w[i+4]+w[i-4]) + c[6]*(w[i+5]+w[i-5])
+        out[i] = c[1]*w[i] + c[2]*(w[i+1]+w[i-1]) + c[3]*(w[i+2]+w[i-2]) + c[4]*(w[i+3]+w[i-3]) + c[5]*(w[i+4]+w[i-4]) + c[6]*(w[i+5]+w[i-5])
     end
     @inbounds for i ∈ 1:5
-        out[i] = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)]) +
-                 c[4]*(w[mod1(i+3,N)]+w[mod1(i-3,N)]) + c[5]*(w[mod1(i+4,N)]+w[mod1(i-4,N)]) + c[6]*(w[mod1(i+5,N)]+w[mod1(i-5,N)])
+        out[i] = c[1]*w[i] + c[2]*(w[i+1]+w[mod1(i-1,N)]) + c[3]*(w[i+2]+w[mod1(i-2,N)]) + c[4]*(w[i+3]+w[mod1(i-3,N)]) + c[5]*(w[i+4]+w[mod1(i-4,N)]) + c[6]*(w[i+5]+w[mod1(i-5,N)])
     end
     @inbounds for i ∈ (N-4):N
-        out[i] = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[mod1(i-1,N)]) + c[3]*(w[mod1(i+2,N)]+w[mod1(i-2,N)]) +
-                 c[4]*(w[mod1(i+3,N)]+w[mod1(i-3,N)]) + c[5]*(w[mod1(i+4,N)]+w[mod1(i-4,N)]) + c[6]*(w[mod1(i+5,N)]+w[mod1(i-5,N)])
+        out[i] = c[1]*w[i] + c[2]*(w[mod1(i+1,N)]+w[i-1]) + c[3]*(w[mod1(i+2,N)]+w[i-2]) + c[4]*(w[mod1(i+3,N)]+w[i-3]) + c[5]*(w[mod1(i+4,N)]+w[i-4]) + c[6]*(w[mod1(i+5,N)]+w[i-5])
     end
     return out
 end
 
-function windowedMax(w::Vector{Float64}, N::Int)
+
+function roughnessWeight!(h::Vector{Float64}, gtmp::Vector{Float64}, r::Vector{Float64}, erm::Float64, N::Int, spreadC::Vector{Float64})
     #=
-    Ported from Dold's `entry mabsm`: rather than the single-point max
-    magnitude (`maxabs`), this takes the max over i of a local 3-point
-    weighted combination |2w(i)+w(i+1)+w(i-1)|/4 - one further, minimal
-    layer of local averaging on top of the denoise+spreadd passes above,
-    so the final Δt-sizing magnitude reflects a small neighborhood rather
-    than any single point.
-    =#
-    wm = 0.0
-    @inbounds for i ∈ 1:N
-        ip = i == N ? 1 : i+1
-        im = i == 1 ? N : i-1
-        tp = abs(2*w[i] + w[ip] + w[im])
-        wm = max(wm, tp)
-    end
-    return 0.25*wm
-end
-
-function sizedtMagnitude(ws::SolverWorkspace, xdv::Vector{Float64}, ydv::Vector{Float64}, fdv::Vector{Float64})
-    #=
-    Ported from Dold's `entry sizedt`: the magnitude used to size the
-    timestep from a given order's Taylor terms is NOT the raw pointwise max
-    of the derivative fields (D2uDt2, D2vDt2, D3ϕDt3) - each field is first
-    denoised (sizedtDenoise!, Dold's m=5 "smooth") and locally averaged
-    (spreadd!), then reduced to a single scalar via a windowed max
-    (windowedMax, Dold's "mabsm") rather than a plain maximum. The three
-    fields' resulting scalars (dxm, dym, dfm) are then combined as
-    sqrt(dxm^2+dym^2+dfm^2) - a Euclidean norm across x/y/ϕ, not a max
-    across them.
-
-    Both of these make the returned magnitude meaningfully less sensitive
-    to a single sharp or noisy grid point than a raw max would be - and
-    therefore Δt = (errortol*3!/dm)^(1/3) meaningfully less prone to being
-    yanked down by one such point. This matters in particular once there's
-    no floor on Δt: an unsmoothed, ungrouped raw max chases every local
-    spike (residual sawtooth noise, or genuine sharp curvature approaching
-    breaking) individually, where Dold's smoothed/windowed/combined measure
-    does not.
-
-    Uses ws.sizedt_temp1/sizedt_temp2 as scratch, so each of the three
-    fields is processed in turn rather than simultaneously.
+    Builds Dold's `smthwd` per-point smoothing weight from the roughness
+    vector r (as computed by roughnessVector! above): normalizes r so that
+    a point at 1/3 of the peak roughness (erm) saturates to weight 1, clips
+    at 1, then spatially spreads that with the 11-point `spreadd` stencil
+    so the weight itself varies smoothly (no sharp on/off jumps between
+    adjacent points). If erm is negligible everywhere (surface already
+    clean), the weight is set to 0 everywhere - no correction gets applied
+    regardless of what smoothWeighted! computes, matching Dold's early
+    return in `smthwd` when the roughness signal is essentially zero.
 
     Input:
-    ws              - SolverWorkspace (for N, the sizedt coefficients, and
-                       scratch buffers)
-    xdv, ydv, fdv   - the three Taylor-term derivative fields (order
-                       matching whatever sizedt(nd,...) call this stands in
-                       for - e.g. D2uDt2, D2vDt2, D3ϕDt3 for nd=3)
+    h - output buffer (length N) for the final per-point weight, in [0,1]
+    gtmp - scratch buffer (length N)
+    r - per-point roughness vector from roughnessVector!
+    erm - the peak value of r (already computed by roughnessVector!)
+    N - number of particles
+    spreadC - 11-point (6-entry) all-positive spreading stencil coefficients
 
     Output:
-    dm - the combined Δt-sizing magnitude
+    h, filled in place with the final per-point smoothing weight
     =#
-    N = ws.N
-    dc = ws.sizedtDenoiseCoefficients
-    sc = ws.spreaddCoefficients
+    if erm < 1e-12
+        fill!(h, 0.0)
+        return h
+    end
+    scale = 3.0 / erm
+    @inbounds for i ∈ 1:N
+        gtmp[i] = min(r[i]*scale, 1.0)
+    end
+    spreadd!(h, gtmp, N, spreadC)
+    return h
+end
 
-    sizedtDenoise!(ws.sizedt_temp1, xdv, N, dc)
-    spreadd!(ws.sizedt_temp2, ws.sizedt_temp1, N, sc)
-    dxm = windowedMax(ws.sizedt_temp2, N)
 
-    sizedtDenoise!(ws.sizedt_temp1, ydv, N, dc)
-    spreadd!(ws.sizedt_temp2, ws.sizedt_temp1, N, sc)
-    dym = windowedMax(ws.sizedt_temp2, N)
+function smoothWeighted!(Ω_sm_temp::Vector{Float64}, Ω::Vector{Float64}, offset::Float64, N::Int, c::Vector{Float64}, h::Vector{Float64})
+    #=
+    Dold's "smthwd": like smooth! below, but the correction at each point is
+    scaled by a per-point weight h ∈ [0,1] (from roughnessWeight! above)
+    instead of being applied at full strength everywhere. This is what lets
+    smoothing attack actual sawtooth noise without eroding a genuinely
+    sharp, well-resolved feature (e.g. a plunging jet tip) that happens to
+    sit somewhere the raw roughness signal is low - it also naturally
+    scales back to nothing anywhere the surface is already clean, even on a
+    step where smoothing fires elsewhere.
 
-    sizedtDenoise!(ws.sizedt_temp1, fdv, N, dc)
-    spreadd!(ws.sizedt_temp2, ws.sizedt_temp1, N, sc)
-    dfm = windowedMax(ws.sizedt_temp2, N)
+    Also ports Dold's multi-pass behavior: the correction is recomputed and
+    reapplied up to m÷4 times (m=15 here, so 3 passes), stopping early as
+    soon as one pass's peak correction exceeds 80% of the previous pass's -
+    a sign it's no longer converging to a smoother state.
 
-    return sqrt(dxm^2 + dym^2 + dfm^2)
+    Input:
+    Ω_sm_temp - scratch buffer (length N)
+    Ω - the field to smooth, modified in place
+    offset - periodic jump over one period (2π for X, 0 for Y/ϕ)
+    N - number of particles
+    c - profile/potential smoothing stencil coefficients (m=15, 8 entries)
+    h - per-point weight from roughnessWeight!, in [0,1]
+
+    Output:
+    Ω, smoothed (weighted) in place
+    =#
+    npasses = (2*length(c) - 1) ÷ 4
+    prevMax = Inf
+    for _ ∈ 1:npasses
+        smax = 0.0
+        @inbounds for i ∈ 8:(N-7)
+            δM = c[1]*Ω[i] + c[2]*(Ω[i+1]+Ω[i-1]) + c[3]*(Ω[i+2]+Ω[i-2]) + c[4]*(Ω[i+3]+Ω[i-3]) + c[5]*(Ω[i+4]+Ω[i-4]) + c[6]*(Ω[i+5]+Ω[i-5]) + c[7]*(Ω[i+6]+Ω[i-6]) + c[8]*(Ω[i+7]+Ω[i-7])
+            Ω_sm_temp[i] = Ω[i] - δM*h[i]
+            smax = max(smax, abs(δM))
+        end
+        @inbounds for i ∈ 1:7
+            δM = c[1]*Ω[i] +
+                c[2]*(Ω[i+1] + Ω[mod1(i-1,N)]+offset*fld(i-2,N)) +
+                c[3]*(Ω[i+2] + Ω[mod1(i-2,N)]+offset*fld(i-3,N)) +
+                c[4]*(Ω[i+3] + Ω[mod1(i-3,N)]+offset*fld(i-4,N)) +
+                c[5]*(Ω[i+4] + Ω[mod1(i-4,N)]+offset*fld(i-5,N)) +
+                c[6]*(Ω[i+5] + Ω[mod1(i-5,N)]+offset*fld(i-6,N)) +
+                c[7]*(Ω[i+6] + Ω[mod1(i-6,N)]+offset*fld(i-7,N)) +
+                c[8]*(Ω[i+7] + Ω[mod1(i-7,N)]+offset*fld(i-8,N))
+            Ω_sm_temp[i] = Ω[i] - δM*h[i]
+            smax = max(smax, abs(δM))
+        end
+        @inbounds for i ∈ (N-6):N
+            δM = c[1]*Ω[i] +
+                c[2]*(Ω[mod1(i+1,N)]+offset*fld(i,N) + Ω[i-1]) +
+                c[3]*(Ω[mod1(i+2,N)]+offset*fld(i+1,N) + Ω[i-2]) +
+                c[4]*(Ω[mod1(i+3,N)]+offset*fld(i+2,N) + Ω[i-3]) +
+                c[5]*(Ω[mod1(i+4,N)]+offset*fld(i+3,N) + Ω[i-4]) +
+                c[6]*(Ω[mod1(i+5,N)]+offset*fld(i+4,N) + Ω[i-5]) +
+                c[7]*(Ω[mod1(i+6,N)]+offset*fld(i+5,N) + Ω[i-6]) +
+                c[8]*(Ω[mod1(i+7,N)]+offset*fld(i+6,N) + Ω[i-7])
+            Ω_sm_temp[i] = Ω[i] - δM*h[i]
+            smax = max(smax, abs(δM))
+        end
+        copy!(Ω, Ω_sm_temp)
+        if smax > 0.8*prevMax
+            break
+        end
+        prevMax = smax
+    end
+    return Ω
 end
 
 

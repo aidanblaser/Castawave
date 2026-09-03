@@ -132,17 +132,34 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
         h - depth of fluid at rest (meters)
         dt - interval of physical time (seconds) at which the output series is
              saved. Does NOT set the internal integration step size any more -
-             that's governed entirely by errortol (and the stability cap
-             below); dt only controls how densely the returned series is
-             sampled. Internal steps are taken freely between save points and
-             simply aren't recorded, with the final sub-step of each interval
-             shortened so the saved series lands on clean multiples of dt.
+             that's governed by atol (and the stability cap below); dt only
+             controls how densely the returned series is sampled. Internal
+             steps are taken freely between save points and simply aren't
+             recorded, with the final sub-step of each interval shortened so
+             the saved series lands on clean multiples of dt.
         tf - duration of simulation (seconds, will abort early if wave breaks)
-        errortol - error tolerance, defaults to 1e-6. Lower values mean greater accuracy. 
-                   Sets the actual internal timestep based on nonlinearity.
-        smoothing - Default to true. At each timestep, applies an 11-pt smoothing filter to remove "sawtooth" 
-                    modes which tend to appear in these codes 
-        g - value of gravitational acceleration (defaults to 9.81)
+        atol - absolute error tolerance (in the same nondimensional length
+               units as X/Y/ϕ) on how much the predictor and corrector
+               steps are allowed to disagree each internal step; this is
+               what actually sets the internal timestep now (see below).
+               Defaults to 1e-6. Deliberately absolute rather than
+               relative: X/Y/ϕ all pass through zero somewhere on a
+               periodic surface, where a relative tolerance would
+               spuriously blow up right at those crossings.
+        errortol - defaults to 1e-4. No longer sets the internal timestep
+                   (see atol above) - only gates the conditional surface
+                   smoothing below (via the roughness diagnostic erm).
+        smoothing - Default to true. When enabled, gates a 15-pt smoothing
+                    filter (Dold's "smthwd") that removes "sawtooth" modes
+                    which tend to appear in these codes - only triggered
+                    when the roughness diagnostic erm exceeds threshold,
+                    and even then only applied point-by-point in proportion
+                    to each point's own local roughness, so a genuinely
+                    sharp but well-resolved feature isn't smoothed away
+                    just because noise appeared somewhere else on the
+                    surface.
+        g - value of gravitational acceleration (defaults to 9.81), used
+            as given (kept physical, not rescaled)
 
     Output:
     X_timeseries - real array of x-positions for particles on the surface at each time step
@@ -190,10 +207,6 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     tcur = 0.0
     # nextSaveTime is set from dt̃val a bit further down, once p.dt̃ has
     # actually been read into dt̃val.
-    # prevΔt tracks the previous accepted step size, for the growth-rate
-    # cap below (Dold's nicedt: dt = 0.d0 initially, so his growth cap is
-    # likewise skipped on the very first step).
-    prevΔt = 0.0
 
     # Preallocate every scratch buffer used by the timestepper into one workspace.
     ws = SolverWorkspace(N, H, gravity)
@@ -218,6 +231,49 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     stabilityFactorVal = p.stabilityFactor
     nextSaveTime = dt̃val
 
+    # --- Adaptive timestepping: predictor/corrector local error control ---
+    # Δt is no longer recomputed from scratch each step via a derivative-
+    # magnitude formula (Dold's sizedt) - it carries over between steps,
+    # adjusted up or down by how much the predictor (Xnext/Ynext/ϕnext, a
+    # 3rd-order Taylor step) and corrector (Xcorr/Ycorr/ϕcorr, a higher-
+    # order trapezoidal-with-correction step) actually disagreed on the
+    # last attempt. That disagreement is a direct, honest local truncation
+    # error estimate - and unlike erm/dm, it's measured in the same
+    # (physical-gravity, lengthScale-nondimensionalized) units everything
+    # else in this solver uses, so no unit-conversion trickery is needed.
+    #
+    # atolVal is deliberately a pure ABSOLUTE tolerance, not relative: X,
+    # Y and ϕ all legitimately pass through zero somewhere on a periodic
+    # surface, and a relative tolerance would spuriously blow up right at
+    # those crossings.
+    atolVal = p.atol
+
+    # Standard embedded/step-doubling step-size control (Hairer, Norsett &
+    # Wanner, "Solving ODEs I" - essentially the same formula scipy's
+    # solve_ivp, MATLAB's ode45, and DifferentialEquations.jl all use).
+    # safety keeps the next attempt just inside tolerance rather than
+    # exactly on the edge of it; facmin/facmax bound how much Δt can
+    # shrink or grow in one adjustment (at most 5x either way) so it
+    # doesn't oscillate step to step; pOrder is the predictor's order (3,
+    # a 3rd-order Taylor step) - the exponent 1/(pOrder+1) comes from its
+    # leading truncation-error term scaling like Δt^(pOrder+1).
+    safety = 0.9
+    facmin = 0.2
+    facmax = 5.0
+    pOrder = 3
+
+    # A floor below which a step that still can't satisfy atolVal is taken
+    # as the surface having genuinely broken, rather than shrinking Δt
+    # forever. Deliberately chosen and adjustable - unlike the abs(erm)>
+    # 5e8 threshold this replaces, which was copied from Dold's own code
+    # and calibrated for his unit convention.
+    minΔt = 1e-8
+
+    # Initial guess for the very first step only - deliberately
+    # conservative; the accept/reject loop below corrects it within the
+    # first few steps regardless of how good or bad this guess is.
+    Δt = 1e-4
+
     # ABMatrices! (called every timestep below) now parallelizes its O(N^2)
     # matrix build with Threads.@threads, and the lu! factorization that
     # follows it is BLAS/LAPACK-backed and can itself use multiple threads.
@@ -233,58 +289,34 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
 
     while tcur <= T̃val && !breaking
         try
-            # Compute up to third order derivatives of X, Y, ϕ 
+            # Compute up to third order derivatives of X, Y, ϕ at the
+            # current (already-accepted) state. Doesn't depend on Δt, so
+            # it's done once per outer iteration - retries inside the
+            # accuracy loop below only redo the predictor/corrector and the
+            # predicted-point evaluation, not this.
             fixedTimeOperations!(ws, Xcur, Ycur, ϕcur, ϕ_x, ϕ_y,
             DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3)
 
-            # Roughness diagnostic (Dold's "rough"/erm), used below to decide
-            # whether the surface needs smoothing this step. Always computed
-            # from the fixed-order-3 accelerations, using the dedicated
-            # 11-point (m=11) roughness stencil (independent of whatever
-            # order the actual smoothing filter below uses).
-            erm = maxRoughness(D2uDt2, D2vDt2, D3ϕDt3, N, ws.roughnessCoefficients)
-
-            # Guard against a blown-up (but still technically finite)
-            # roughness/derivative field, mirroring Dold's own hard stop:
-            # "if (abs(erm).gt.5.d8) stop '<data is no longer intelligible>'"
-            # (called from his "output" routine, using the exact same erm
-            # computed by "rough" above). This is distinct from the NaN/Inf
-            # guard further below - that only catches actual NaN/Inf, not a
-            # merely enormous but finite value, which is what an
-            # ill-conditioned ABMatrices!/NormalInversion! solve (particles
-            # crowding together as the surface approaches overturning) tends
-            # to produce first: erm (and thus dm, and thus the reciprocal
-            # Δt) blows up several steps before anything actually becomes
-            # NaN, so without this check the run just grinds through
-            # evaporating timesteps instead of stopping cleanly.
-            if abs(erm) > 5e8
-                println("Data is no longer intelligible (roughness/erm exceeded 5e8). Aborting simulation.")
-                breaking = true
-                break
-            end
-
-            # Determing Adaptive Timestep. dt̃val is no longer a cap here - it's
-            # the save interval, applied below via the landing clip instead
-            # (which bounds Δt by at most dt̃val anyway, since it never lets
-            # a step overshoot the next save point).
-            #
-            # dm here matches Dold's "sizedt" magnitude, not a raw pointwise
-            # max of the derivative fields - see sizedtMagnitude's docstring
-            # for why that distinction matters once there's no floor on Δt
-            # (a raw max chases individual noisy/sharp grid points down;
-            # Dold's denoised/locally-averaged/combined measure doesn't).
-            dm = sizedtMagnitude(ws, D2uDt2, D2vDt2, D3ϕDt3)
-            Δt = (errortolval*factorial(3)/dm)^(1/3)
+            # Roughness diagnostic (Dold's "rough"/erm) - kept to gate the
+            # conditional smoothing below (and, via the full per-point
+            # vector ws.roughnessVec, to weight it spatially - see
+            # smoothWeighted! below), not for timestep control or a hard
+            # blow-up stop (both superseded by the predictor/corrector
+            # error control below, which measures accuracy directly
+            # instead of inferring it from a raw derivative magnitude).
+            erm = roughnessVector!(ws.roughnessVec, D2uDt2, D2vDt2, D3ϕDt3, N, ws.roughnessCoefficients)
 
             # Numerical-stability threshold on the timestep, ported from Dold's
             # "timstp"/strong-instability check (Dold 1992, J. Comp. Phys. 103,
             # 90-115). Explicit surface-tracking schemes like this one become
             # strongly unstable above a step size set by the local balance of
             # surface curvature/acceleration against gravity - independent of
-            # the accuracy-based Δt above, which can look fine while a run is
-            # quietly heading into instability (especially as a wave steepens
-            # toward breaking). stabilityFactorVal defaults to 0.6, matching
-            # Dold's own recommended (most conservative) setting.
+            # the accuracy-based error control below, which can look fine
+            # while a run is quietly heading into instability (especially as
+            # a wave steepens toward breaking). stabilityFactorVal defaults
+            # to 0.6, matching Dold's own recommended (most conservative)
+            # setting. Applied to Δt (the carried-forward, "natural" step
+            # size) once per outer iteration, before any retries.
             stabilityMax = 0.0
             @inbounds for i ∈ 1:N
                 tp = abs(ws.X_ξ[i]*(DvDt[i]+gravity) - ws.Y_ξ[i]*DuDt[i]) / (ws.X_ξ[i]^2 + ws.Y_ξ[i]^2)
@@ -292,94 +324,128 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             end
             Δt = min(Δt, stabilityFactorVal / sqrt(stabilityMax))
 
-            # Growth-rate cap, ported from Dold's nicedt: "restricting the
-            # rate of time-step growth to quadruple in about 5 steps" - Δt
-            # is never allowed to grow by more than 32% over the previous
-            # accepted step, regardless of what the error-tolerance/
-            # stability formulas above would otherwise now allow. This is
-            # what keeps the step size from snapping straight back up right
-            # after a rough patch (e.g. near breaking) even once the
-            # instantaneous curvature/acceleration briefly relaxes - it has
-            # to ramp back up gradually instead. Skipped on the very first
-            # step (prevΔt starts at 0, matching Dold's dt = 0.d0 init).
-            if prevΔt > 0.0
-                Δt = min(Δt, 1.32*prevΔt)
-            end
-
-            # Clip the step so it approaches the next save-time (dt̃val-
-            # spaced) boundary. This matches Dold's own "pts" printout
-            # interval explicitly - a fixed interval (|pts| > 0 "demands
-            # some time-steps to land on time multiples of |pts|"), with no
-            # breaking-triggered densification (not a feature of his code;
-            # his only variant is a negative-pts mode adding extra prints
-            # at kinetic-energy extrema, unrelated to breaking) - including
-            # his nicedt "homing in smoothly from as many as almost 4 steps
-            # distant": rather than taking full-size steps right up to the
-            # boundary and clipping one abrupt final step, the step size
-            # eases down over the last few steps (quartered, thirded,
-            # halved, then exact) as it approaches. Internal steps between
-            # save points are taken freely (per errortolval and the
-            # stability/growth caps above) and simply not recorded. Only
-            # home in on a save point that's still within the requested
-            # duration; past the last full interval before T̃val, steps
-            # proceed unclipped until tcur exceeds T̃val and the outer loop
-            # stops.
+            # --- Accuracy-controlled predictor/corrector retry loop ---
+            # Δt is the carried-forward "natural" step size, evolved only
+            # by the accuracy-based growth/shrink factor below - it's never
+            # overwritten by the landing-clip logic. stepΔt is the (possibly
+            # landing-clipped) value actually used for this attempt; it's
+            # recomputed from the current Δt every retry, so a step that
+            # gets rejected and shrunk also gets its landing-clip check
+            # redone against the smaller Δt.
+            accepted = false
             landingStep = false
-            if nextSaveTime <= T̃val
-                if tcur + 1.1*Δt >= nextSaveTime
-                    Δt = nextSaveTime - tcur
-                    landingStep = true
-                elseif tcur + 1.9*Δt >= nextSaveTime
-                    Δt = 0.5*(nextSaveTime - tcur)
-                elseif tcur + 2.9*Δt >= nextSaveTime
-                    Δt = (1.0/3.0)*(nextSaveTime - tcur)
-                elseif tcur + 3.9*Δt >= nextSaveTime
-                    Δt = 0.25*(nextSaveTime - tcur)
+            stepΔt = Δt
+            while !accepted
+                if Δt < minΔt
+                    println("Data is no longer intelligible (Δt fell below $(minΔt) while still failing the position/potential error tolerance atol=$(atolVal)). Aborting simulation.")
+                    breaking = true
+                    break
                 end
+
+                # Clip the trial step so it approaches the next save-time
+                # (dt̃val-spaced) boundary, exactly as before: Dold's own
+                # "pts" printout interval - a fixed interval, no breaking-
+                # triggered densification - including his nicedt "homing in
+                # smoothly from as many as almost 4 steps distant" (the
+                # step size eases down over the last few steps rather than
+                # clipping one abrupt final step). This is purely local to
+                # this attempt - it never feeds back into Δt itself.
+                stepΔt = Δt
+                landingStep = false
+                if nextSaveTime <= T̃val
+                    if tcur + 1.1*stepΔt >= nextSaveTime
+                        stepΔt = nextSaveTime - tcur
+                        landingStep = true
+                    elseif tcur + 1.9*stepΔt >= nextSaveTime
+                        stepΔt = 0.5*(nextSaveTime - tcur)
+                    elseif tcur + 2.9*stepΔt >= nextSaveTime
+                        stepΔt = (1.0/3.0)*(nextSaveTime - tcur)
+                    elseif tcur + 3.9*stepΔt >= nextSaveTime
+                        stepΔt = 0.25*(nextSaveTime - tcur)
+                    end
+                end
+
+                # Predictor: 3rd-order Taylor step.
+                @inbounds for i ∈ 1:N
+                    Xnext[i] = Xcur[i] + ϕ_x[i]*stepΔt + stepΔt^2/2*DuDt[i] + stepΔt^3/6*D2uDt2[i]
+                    Ynext[i] = Ycur[i] + stepΔt*ϕ_y[i] + stepΔt^2/2*DvDt[i] + stepΔt^3/6*D2vDt2[i]
+                    ϕnext[i] = ϕcur[i] + stepΔt*DϕDt[i] + stepΔt^2/2*D2ϕDt2[i] + stepΔt^3/6*D3ϕDt3[i]
+                end
+
+                # Estimate derivatives at the predicted surface
+                fixedTimeOperations!(ws, Xnext, Ynext, ϕnext, ϕ_xp, ϕ_yp,
+                DϕDtp, DuDtp, DvDtp, D2ϕDt2p, D2uDt2p, D2vDt2p, D3ϕDt3p)
+
+                # Corrector: trapezoidal average of derivatives at the
+                # predicted and current surfaces, with Taylor correction
+                # terms - higher order than the predictor, so the two
+                # together form an embedded pair.
+                @inbounds for i ∈ 1:N
+                    Xcorr[i] = Xcur[i] + stepΔt/2*(ϕ_x[i]+ϕ_xp[i]) + stepΔt^2/12*(DuDt[i]-DuDtp[i]) + stepΔt^3/24*(D2uDt2[i]+D2uDt2p[i])
+                    Ycorr[i] = Ycur[i] + stepΔt/2*(ϕ_y[i]+ϕ_yp[i]) + stepΔt^2/12*(DvDt[i]-DvDtp[i]) + stepΔt^3/24*(D2vDt2[i]+D2vDt2p[i])
+                    ϕcorr[i] = ϕcur[i] + stepΔt/2*(DϕDt[i]+DϕDtp[i]) + stepΔt^2/12*(D2ϕDt2[i]-D2ϕDt2p[i]) + stepΔt^3/24*(D3ϕDt3[i]+D3ϕDt3p[i])
+                end
+
+                # Local error estimate: how much the predictor and
+                # corrector disagree, in absolute (X,Y,ϕ) units, relative
+                # to atolVal - computed BEFORE any smoothing is applied
+                # below, so smoothing (which deliberately damps
+                # high-wavenumber noise) can't mask a genuinely inaccurate
+                # step.
+                errX = 0.0; errY = 0.0; errϕ = 0.0
+                @inbounds for i ∈ 1:N
+                    errX = max(errX, abs(Xcorr[i]-Xnext[i]))
+                    errY = max(errY, abs(Ycorr[i]-Ynext[i]))
+                    errϕ = max(errϕ, abs(ϕcorr[i]-ϕnext[i]))
+                end
+                errRatio = max(errX, errY, errϕ) / atolVal
+
+                # Standard embedded/step-doubling step-size update (Hairer,
+                # Norsett & Wanner) - used both to shrink Δt on rejection
+                # and to grow/shrink it modestly on acceptance.
+                factor = clamp(safety*errRatio^(-1/(pOrder+1)), facmin, facmax)
+                Δt = Δt * factor
+
+                if errRatio <= 1.0
+                    accepted = true
+                end
+                # else: rejected - loop back and retry with the smaller Δt
+                # (stepΔt, and its landing-clip check, are both recomputed
+                # from it at the top of the loop).
             end
 
-            println(tcur)
-
-            # Use derivatives up to third order to make a predictor step 
-            @inbounds for i ∈ 1:N
-                Xnext[i] = Xcur[i] .+ ϕ_x[i] * Δt .+ Δt^2/2*DuDt[i] .+ Δt^3/6*D2uDt2[i] 
-                Ynext[i] = Ycur[i] .+ Δt * (ϕ_y[i]) .+ Δt^2/2*DvDt[i] .+Δt^3/6*D2vDt2[i]
-                ϕnext[i] = ϕcur[i] .+ Δt * (DϕDt[i]) .+ Δt^2/2*D2ϕDt2[i] .+Δt^3/6*D3ϕDt3[i]
+            if breaking
+                break
             end
 
-            # Estimate derivatives at the predicted surface
-            fixedTimeOperations!(ws, Xnext, Ynext, ϕnext, ϕ_xp, ϕ_yp,
-            DϕDtp, DuDtp, DvDtp, D2ϕDt2p, D2uDt2p, D2vDt2p, D3ϕDt3p)
-
-            # Use predictor-corrector to average derivatives at predicted surface and current surface (like trapezoidal rule)
-            @inbounds for i ∈ 1:N
-                Xcorr[i] = Xcur[i] .+ Δt/2 *(ϕ_x[i] .+ ϕ_xp[i]) .+ Δt^2 / 12 *(DuDt[i] .- DuDtp[i]) .+ Δt^3 /24 * (D2uDt2[i] .+ D2uDt2p[i])
-                Ycorr[i] = Ycur[i] .+ Δt/2 *(ϕ_y[i] .+ ϕ_yp[i]) .+ Δt^2 / 12 *(DvDt[i] .- DvDtp[i]) .+ Δt^3 /24 * (D2vDt2[i] .+ D2vDt2p[i])
-                ϕcorr[i] = ϕcur[i] .+ Δt/2 *(DϕDt[i] .+ DϕDtp[i]) .+ Δt^2 / 12 *(D2ϕDt2[i] .- D2ϕDt2p[i]) .+ Δt^3 /24 * (D3ϕDt3[i] .+ D3ϕDt3p[i])
-            end
             # Conditionally smooth the corrected surface, mirroring Dold's
-            # "smooth"/"smthwd" logic: he only invokes smoothing when the
-            # roughness diagnostic erm indicates the surface has picked up
+            # "smthwd" logic: he only invokes smoothing when the roughness
+            # diagnostic erm indicates the surface has picked up
             # high-wavenumber ("sawtooth") noise beyond the local error
             # tolerance - i.e. (errortol + erm)^4 > errortol - rather than
-            # unconditionally every step (which is what this code did
-            # previously, and which over-damps genuine short-wavelength
-            # surface features). Note: this ports Dold's triggering
-            # condition and his m-point binomial smoothing kernel, but not
-            # his additional spatially-weighted "smthwd"/"spreadd"
-            # machinery (which locally tapers the smoothing strength based
-            # on nearby curvature) - that refinement is a possible future
-            # addition, not implemented here.
+            # unconditionally every step. And, per Dold's own documentation
+            # ("smoothing is applied only if the effect of roughness
+            # exceeds |precision|^(1/4), and then only where the roughness
+            # is most significant"), the correction is also weighted
+            # per-point by roughnessWeight! before being applied, so a
+            # genuinely sharp but well-resolved feature (e.g. a plunging
+            # jet tip) isn't flattened just because smoothing fired
+            # elsewhere on the surface - only points whose own local
+            # roughness signal is high get corrected at full strength.
             if smoothingval && (errortolval + erm)^4 > errortolval
-                smooth!(ws.Ω_sm_temp,Xcorr,2π,N,ws.smoothCoefficients)
-                smooth!(ws.Ω_sm_temp,Ycorr,0.0,N,ws.smoothCoefficients)
-                smooth!(ws.Ω_sm_temp,ϕcorr,0.0,N,ws.smoothCoefficients)
+                roughnessWeight!(ws.roughnessWeight, ws.roughnessWeightTemp, ws.roughnessVec, erm, N, ws.spreadCoefficients)
+                smoothWeighted!(ws.Ω_sm_temp,Xcorr,2π,N,ws.smoothCoefficients,ws.roughnessWeight)
+                smoothWeighted!(ws.Ω_sm_temp,Ycorr,0.0,N,ws.smoothCoefficients,ws.roughnessWeight)
+                smoothWeighted!(ws.Ω_sm_temp,ϕcorr,0.0,N,ws.smoothCoefficients,ws.roughnessWeight)
             end
 
             # Guard against NaN/Inf (blow-up or instability) before committing
-            # this step's values, mirroring Dold's per-step
-            # "if (abs(erm)>5e8 .or. isnan) stop '<data is no longer
-            # intelligible>'" check.
+            # this step's values. Mostly a redundant final safety net now
+            # (a NaN in Xcorr/Xnext would typically make errRatio itself
+            # NaN, and NaN <= 1.0 is false in Julia, so the retry loop above
+            # would already reject and shrink toward minΔt on its own) but
+            # kept as a direct, unambiguous check rather than relying on
+            # that indirectly.
             if !(all(isfinite, Xcorr) && all(isfinite, Ycorr) && all(isfinite, ϕcorr))
                 println("Data is no longer intelligible (NaN/Inf detected). Aborting simulation.")
                 breaking = true
@@ -388,8 +454,7 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
                 Xcur .= Xcorr
                 Ycur .= Ycorr
                 ϕcur .= ϕcorr
-                tcur += Δt
-                prevΔt = Δt # for next step's growth-rate cap
+                tcur += stepΔt
 
                 # ...but only append to the output series on a landing step,
                 # i.e. when tcur has just reached a clean multiple of dt̃val.
@@ -412,6 +477,8 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             end    
         end
     end
+
+    println(tcur)
 
     # If the run ended without landing exactly on a save-time boundary (T̃val
     # need not be an exact multiple of dt̃val, and a run can also legitimately

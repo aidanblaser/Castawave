@@ -23,7 +23,7 @@ struct SimulationParameters
     # Physical parameters
     L::Float64 # Length of domain in meters (spatial periodicity)
     h::Float64 # Depth of fluid at rest in meters
-    dt::Float64 # Interval of physical time (seconds) between saved output snapshots. Does NOT bound the internal step size; see errortol below and runSim's docstring.
+    dt::Float64 # Interval of physical time (seconds) between saved output snapshots. Does NOT bound the internal step size; see atol below and runSim's docstring.
     T::Float64 # Desired duration of simulation in seconds (may abort early if wave breaks)
 
     # Parameters re-scaled to have L=2π
@@ -34,7 +34,8 @@ struct SimulationParameters
     T̃::Float64
 
     # Parameters with default values 
-    errortol::Float64
+    atol::Float64 # absolute tolerance on predictor/corrector disagreement in X/Y/ϕ - sets the internal timestep; see runSim's docstring
+    errortol::Float64 # no longer sets the internal timestep - only gates conditional smoothing (via erm)
     smoothing::Bool 
     g::Float64
     stabilityFactor::Float64 # Safety factor, roughly 0 to 1, on the Dold (1992, JCP 103, 90-115)
@@ -44,12 +45,13 @@ struct SimulationParameters
                               # stay stable and want to take larger steps.
 end
 
-function SimulationParameters(L,h,dt,T;errortol=1e-4,smoothing=true,g=9.81,stabilityFactor=0.6)
+function SimulationParameters(L,h,dt,T;atol=1e-6,errortol=1e-4,smoothing=true,g=9.81,stabilityFactor=0.6)
         # Convert variables to explicit types 
         L = Float64(L)
         h = Float64(h)
         dt = Float64(dt)
         T = Float64(T)
+        atol = Float64(atol)
         errortol = Float64(errortol)
         smoothing = Bool(smoothing)
         g = Float64(g)
@@ -63,7 +65,7 @@ function SimulationParameters(L,h,dt,T;errortol=1e-4,smoothing=true,g=9.81,stabi
         T̃ = T/timeScale
         return SimulationParameters(L, h, dt, T,
                                lengthScale, timeScale, h̃, dt̃, T̃,
-                               errortol, smoothing, g, stabilityFactor)
+                               atol, errortol, smoothing, g, stabilityFactor)
 end
 
 struct SolverWorkspace
@@ -77,12 +79,11 @@ struct SolverWorkspace
     roughnessCoefficients::Vector{Float64} # fixed 11-point (m=11) formula used only for
                                             # the roughness diagnostic, independent of
                                             # whatever stencil smoothCoefficients uses
-    sizedtDenoiseCoefficients::Vector{Float64} # Dold's sizedt-only m=5 denoising formula
-                                                # (narrower/gentler than smoothCoefficients
-                                                # or roughnessCoefficients)
-    spreaddCoefficients::Vector{Float64}       # Dold's fixed 11-point "spreadd" local
-                                                # averaging formula (all-positive, unlike
-                                                # the denoising kernels above)
+    spreadCoefficients::Vector{Float64}    # all-positive 11-point (m=11) windowing formula
+                                            # (Dold's `spreadd`) used to spatially spread
+                                            # the per-point roughness weight for smthwd-style
+                                            # weighted smoothing - distinct from the signed
+                                            # roughnessCoefficients stencil above
 
     # --- Conformally mapped geometry (complex) ---
     Ω::Vector{ComplexF64}
@@ -136,11 +137,10 @@ struct SolverWorkspace
     # --- 11-point smoothing scratch ---
     Ω_sm_temp::Vector{Float64}
 
-    # --- sizedt (Δt-sizing) scratch: reused across the x/y/ϕ derivative
-    # fields in turn, since only the final scalar (windowedMax) result for
-    # each is needed, not all three fields' smoothed versions at once ---
-    sizedt_temp1::Vector{Float64} # holds the denoised field
-    sizedt_temp2::Vector{Float64} # holds the denoised-then-spread field
+    # --- smthwd (weighted smoothing) scratch ---
+    roughnessVec::Vector{Float64}          # per-point roughness r(i) from roughnessVector!
+    roughnessWeightTemp::Vector{Float64}   # scratch: clipped/normalized roughness before spreadd
+    roughnessWeight::Vector{Float64}       # final per-point smoothing weight h(i) in [0,1]
 end
 
 function SolverWorkspace(N::Int, H::Real, g::Real)
@@ -153,16 +153,12 @@ function SolverWorkspace(N::Int, H::Real, g::Real)
     # Dold's `rough` diagnostic always uses an 11-point formula (m=11),
     # regardless of what m the profile/potential smoothing above uses.
     roughnessCoefficients = [252.0, -210.0, 120.0, -45.0, 10.0, -1.0] ./ 1024.0
-    # Dold's sizedt calls entry smooth with m=5 specifically (not whatever m
-    # smoothCoefficients/roughnessCoefficients use) - smcalc's m=5 formula.
-    sizedtDenoiseCoefficients = [6.0, -4.0, 1.0] ./ 16.0
-    # entry spreadd is not parameterized by m at all - always this fixed
-    # 11-point, all-positive-coefficient formula.
-    spreaddCoefficients = [252.0, 210.0, 120.0, 45.0, 10.0, 1.0] ./ 1024.0
+    # Same magnitude coefficients as roughnessCoefficients, but all-positive:
+    # this is a plain windowed average (Dold's `spreadd`), not a signed residual.
+    spreadCoefficients = [252.0, 210.0, 120.0, 45.0, 10.0, 1.0] ./ 1024.0
 
     return SolverWorkspace(
-        N, Float64(H), Float64(g), c1, c2, smoothCoefficients, roughnessCoefficients,
-        sizedtDenoiseCoefficients, spreaddCoefficients,
+        N, Float64(H), Float64(g), c1, c2, smoothCoefficients, roughnessCoefficients, spreadCoefficients,
         # Ω, Ω_ξ, Ω_ξξ
         z(), z(), z(),
         # X_ξ, Y_ξ, inverseds2
@@ -190,7 +186,7 @@ function SolverWorkspace(N::Int, H::Real, g::Real)
         r(), r(),
         # Ω_sm_temp
         r(),
-        # sizedt_temp1, sizedt_temp2
-        r(), r(),
+        # roughnessVec, roughnessWeightTemp, roughnessWeight
+        r(), r(), r(),
     )
 end
