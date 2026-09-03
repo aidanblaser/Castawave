@@ -30,12 +30,3 @@ See `scripts/QuickStart.jl` for a minimal, self-contained worked example
 no manual setup beyond the one-time `Pkg.develop` + `Pkg.instantiate` shown
 in that script's header comment).
 
-If you're doing heavier research on top of Castawave - sweeps, saved
-datasets, plotting scripts, and the like - consider keeping that in a
-separate sibling project that depends on Castawave via `Pkg.develop`,
-the way [CastawaveAnalysis](https://github.com/aidanblaser/CastawaveAnalysis)
-does. That's also a natural place to reach for
-[DrWatson](https://juliadynamics.github.io/DrWatson.jl/stable/), whose
-`@quickactivate`/`tagsave`/reproducibility conventions fit a research
-project well but don't make sense for a redistributable package like
-Castawave itself to depend on internally.
