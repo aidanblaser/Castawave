@@ -11,7 +11,7 @@ To use it locally, do the following:
 1. Open a Julia console and do:
    ```
    julia> using Pkg
-   julia> Pkg.develop(path="path/to/this/project")
+   julia> Pkg.develop(path="path/to/Castawave")
    julia> using Castawave
    ```
    `Pkg.develop` registers Castawave as a local dependency of whatever

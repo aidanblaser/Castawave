@@ -1,9 +1,15 @@
 #=
-This file contains the main routine for initialising and running the adapted Dold flow solver. The program is initialized through the input parameters of the run function, which then runs the solver for the specified time or amount.
+This file contains the main routine for initialising and running the adapted Dold flow solver. 
+The program is initialized through the input parameters of the run function, which then runs the solver for 
+the specified time or amount.
 
-Package dependencies as well as the other two files needed to run the solver are initially called and included. The fixedTimeOperations computes all necessary quantities needed to step the model forward in time, while the overarching run function marches the X, Y, and ϕ Vectors in time until outputting a matrix wherein each row corresponds to a fixed time. 
+Package dependencies as well as the other two files needed to run the solver are initially called and included. 
+The fixedTimeOperations computes all necessary quantities needed to step the model forward in time, while the 
+overarching run function marches the X, Y, and ϕ Vectors in time until outputting a matrix wherein each row 
+corresponds to a fixed time. 
 
-Note that, during initialization, particle labels are taken as the indices of the X, Y, and ϕ vectors, and are as such evenly spaced no matter the positional values.
+Note that, during initialization, particle labels are taken as the indices of the X, Y, and ϕ vectors, and are 
+as such evenly spaced no matter the positional values.
 =#
 
 using LinearAlgebra
@@ -12,25 +18,15 @@ include("Constants.jl")
 include("Types.jl")
 include("HelperFunctions.jl")
 
-#= TODO 
-- Better implement time stepping so it lands on intervals of dt (even if it takes steps between)
-- 
-=#
 
-# SimulationParameters now lives in Types.jl, alongside SolverWorkspace.
-# It has to be defined before HelperFunctions.jl is included below, because
-# a couple of legacy (non-mutating) functions there - PhiTimeDer and
-# TimeDerivatives - annotate an argument as ::SimulationParameters, and
-# Julia resolves type annotations in a method signature at the time that
-# `function` definition is evaluated, not lazily. Defining the struct here
-# instead (after HelperFunctions.jl is already included) throws
-# `UndefVarError: SimulationParameters not defined` from inside
-# HelperFunctions.jl on a fresh run.
 
 
 function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, p::SimulationParameters,N::Int,H)
     #=
-    The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
+    The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed 
+    for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, 
+    from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the 
+    system can be evolved to the next timestep.
     
     It has many calls to the underlying helper functions file for clarity and compartementalization of the code.
     
@@ -44,7 +40,7 @@ function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real
     ϕ_x - real vector of U velocity for particles on the surface
     ϕ_y - real vector of V velocity for particles on the surface
     ϕ_D - real vector of the material derivative of ϕ from the dynamic boundary condition
-    (higher derivatives of X,Y,ϕ are outputted as well)
+    (Up to 3rd order time derivatives are also computed for X, Y, ϕ)
     =#
 
     # Compute Ω by taking a conformal map 
@@ -61,7 +57,8 @@ function fixedTimeOperations(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real
     A, B, ℵ = ABMatrices(Ω, Ω_ξ, Ω_ξξ, H)
     ϕ_ξ, ϕ_ν = NormalInversion(ϕ, A, ℵ)
 
-    # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
+    # All necessary information having been computed, we transform back to the real frame to output conveniant 
+    # timestepping quantities.
     ϕ_x, ϕ_y = RealPhi(R_ξ, ϕ_ξ, ϕ_ν)
     
     # Use all this to compute up to third order time derivatives
@@ -74,7 +71,10 @@ end
 function fixedTimeOperations!(ws::SolverWorkspace, X, Y, ϕ, ϕ_x, ϕ_y,
     DϕDt, DuDt, DvDt, D2ϕDt2, D2uDt2, D2vDt2, D3ϕDt3)
     #=
-    The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and the system can be evolved to the next timestep.
+    The fixedTimeOperations function wraps all of the necessary operations for finding the quantities needed for 
+    the next timestep. These consist of the finding the R_ξ derivative and the ϕ_ξ, ϕ_ν derivatives, 
+    from which ϕ_t is given from Bernoulli's condition. Then, the change in both R = X + iY and ϕ is known and 
+    the system can be evolved to the next timestep.
     
     It has many calls to the underlying helper functions file for clarity and compartementalization of the code.
     
@@ -108,7 +108,8 @@ function fixedTimeOperations!(ws::SolverWorkspace, X, Y, ϕ, ϕ_x, ϕ_y,
     ℵ = ABMatrices!(ws, Ω, Ω_ξ, Ω_ξξ)
     NormalInversion!(ws, ϕ_ξ, ϕ_ξξ, ϕ_ν, ϕ, ℵ)
 
-    # All necessary information having been computed, we transform back to the real frame to output conveniant timestepping quantities.
+    # All necessary information having been computed, we transform back to the real frame to output 
+    # conveniant timestepping quantities.
     RealPhi!(ws, ϕ_x, ϕ_y, ϕ_ξ, ϕ_ν)
 
     # Compute up to third order time derivatives 
@@ -118,7 +119,7 @@ end
 
 function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::AbstractVector{<:Real}, p::SimulationParameters)
     #=
-    The run function is the master function of the program, taking in the initial conditions for the system
+    The run function is the main function of the program, taking in the initial conditions for the system
     and timestepping it forward until some final time. The outputs are written into arrays
     (which can also be exported through JDL2 for larger files).
     
@@ -137,8 +138,10 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
              simply aren't recorded, with the final sub-step of each interval
              shortened so the saved series lands on clean multiples of dt.
         tf - duration of simulation (seconds, will abort early if wave breaks)
-        errortol - error tolerance, defaults to 1e-5. Lower values mean greater accuracy. Sets the actual internal timestep based on nonlinearity
-        smoothing - Default to true. At each timestep, applies an 11-pt smoothing filter to remove "sawtooth" modes which tend to appear in these codes 
+        errortol - error tolerance, defaults to 1e-6. Lower values mean greater accuracy. 
+                   Sets the actual internal timestep based on nonlinearity.
+        smoothing - Default to true. At each timestep, applies an 11-pt smoothing filter to remove "sawtooth" 
+                    modes which tend to appear in these codes 
         g - value of gravitational acceleration (defaults to 9.81)
 
     Output:
@@ -159,7 +162,7 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     H = conformalDepth(hS)
     gravity = p.g
 
-    # Add breaking parameter 
+    # Add breaking parameter (will become true and abort code if the wave breaks)
     breaking = false
 
     # Initialize time vector
@@ -192,9 +195,7 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     # likewise skipped on the very first step).
     prevΔt = 0.0
 
-    # Preallocate every scratch buffer used by the timestepper into one workspace
-    # (previously ~65 separate `similar(X)`/`Vector{...}(undef,N)` locals threaded
-    # through fixedTimeOperations!/TimeDerivatives!/etc. as loose positional args).
+    # Preallocate every scratch buffer used by the timestepper into one workspace.
     ws = SolverWorkspace(N, H, gravity)
 
     # These stay outside the workspace because both the "current" and "predicted"
@@ -279,9 +280,6 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             if prevΔt > 0.0
                 Δt = min(Δt, 1.32*prevΔt)
             end
-
-            # Minimum timestep 1e-4
-            Δt = max(Δt,1e-4)
 
             # Clip the step so it approaches the next save-time (dt̃val-
             # spaced) boundary. This matches Dold's own "pts" printout
@@ -402,9 +400,6 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
     end
 
     # Reshape into matrix 
-    # Note: reduce(hcat, ...) instead of hcat(Xfull...) - splatting a
-    # vector with one entry per timestep as positional args is a Julia
-    # anti-pattern that can dominate runtime/compile time for long runs.
     Xmatrix = permutedims(reduce(hcat, Xfull))
     Ymatrix = permutedims(reduce(hcat, Yfull))
     ϕmatrix = permutedims(reduce(hcat, ϕfull))
