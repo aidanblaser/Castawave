@@ -244,6 +244,25 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
             # order the actual smoothing filter below uses).
             erm = maxRoughness(D2uDt2, D2vDt2, D3ϕDt3, N, ws.roughnessCoefficients)
 
+            # Guard against a blown-up (but still technically finite)
+            # roughness/derivative field, mirroring Dold's own hard stop:
+            # "if (abs(erm).gt.5.d8) stop '<data is no longer intelligible>'"
+            # (called from his "output" routine, using the exact same erm
+            # computed by "rough" above). This is distinct from the NaN/Inf
+            # guard further below - that only catches actual NaN/Inf, not a
+            # merely enormous but finite value, which is what an
+            # ill-conditioned ABMatrices!/NormalInversion! solve (particles
+            # crowding together as the surface approaches overturning) tends
+            # to produce first: erm (and thus dm, and thus the reciprocal
+            # Δt) blows up several steps before anything actually becomes
+            # NaN, so without this check the run just grinds through
+            # evaporating timesteps instead of stopping cleanly.
+            if abs(erm) > 5e8
+                println("Data is no longer intelligible (roughness/erm exceeded 5e8). Aborting simulation.")
+                breaking = true
+                break
+            end
+
             # Determing Adaptive Timestep. dt̃val is no longer a cap here - it's
             # the save interval, applied below via the landing clip instead
             # (which bounds Δt by at most dt̃val anyway, since it never lets
@@ -318,6 +337,8 @@ function runSim(X::AbstractVector{<:Real}, Y::AbstractVector{<:Real}, ϕ::Abstra
                     Δt = 0.25*(nextSaveTime - tcur)
                 end
             end
+
+            println(tcur)
 
             # Use derivatives up to third order to make a predictor step 
             @inbounds for i ∈ 1:N
